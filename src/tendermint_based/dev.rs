@@ -80,7 +80,7 @@ impl EnvCfg {
 #[serde(bound = "")]
 pub struct Env<P: NodePorts, S: NodeOptsGenerator<Node<P>>> {
     // the name of this env
-    #[serde(rename = "env_name")]
+    #[serde(flatten)]
     name: EnvName,
 
     // data path of this env
