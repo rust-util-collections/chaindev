@@ -8,7 +8,7 @@ license = "GPLv3"
 
 [dependencies]
 nix = "0.25.0"
-toml_edit = "0.14.4"
+toml_edit = "0.15.0"
 rand = "0.8.5"
 once_cell = "1.14.0"
 parking_lot = "0.12.1"
