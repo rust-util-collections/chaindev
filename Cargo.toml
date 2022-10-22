@@ -20,7 +20,7 @@ vsdb = "0.47.0"
 ruc = { version = "3.0.0", features = ["cmd","ssh"] }
 
 tendermint = { git = "https://github.com/rust-util-collections/tendermint-rs", tag = "v0.25.0-gsc-p3", optional = true }
-tendermint-config =  { git = "https://github.com/rust-util-collections/tendermint-rs", tag = "v0.25.0-gsc-p3", optional = true }
+tendermint-config =  { git = "https://github.com/rust-util-collections/tendermint-rs", tag = "v0.25.0", optional = true }
 
 [features]
 default = ["tendermint_based","unix_abstract_socket"]
