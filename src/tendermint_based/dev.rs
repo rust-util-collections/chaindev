@@ -23,9 +23,10 @@ use std::{
     process::{exit, Command, Stdio},
     str::FromStr,
 };
-use tendermint::{validator::Info as TmValidator, vote::Power as TmPower, Genesis};
-use tendermint_config::{
-    PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
+use tendermint::{
+    config::{PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig},
+    validator::Info as TmValidator,
+    vote::Power as TmPower,
 };
 use toml_edit::{value as toml_value, Array, Document};
 
@@ -131,7 +132,7 @@ where
 
     /// the contents of `genesis.json` of all nodes
     #[serde(rename = "tendermint_genesis")]
-    pub genesis: Option<Genesis>,
+    pub genesis: Option<JsonValue>,
 
     pub custom_data: C,
 
@@ -450,25 +451,11 @@ where
             ports.get_sys_abci()
         ));
 
-        #[cfg(all(target_os = "linux", feature = "unix_abstract_socket"))]
-        {
-            // Use 'unix abstract socket address', `man unix(7)` for more infomation.
-            // A '@'-prefix is necessary for tendermint(written in go) to distinguish its type
-            cfg["rpc"]["laddr"] = toml_value(format!(
-                "unix://@{}{}",
-                rand::random::<u64>(),
-                &self.meta.name
-            ));
-        }
-
-        #[cfg(any(not(target_os = "linux"), not(feature = "unix_abstract_socket")))]
-        {
-            cfg["rpc"]["laddr"] = toml_value(format!(
-                "tcp://{}:{}",
-                &self.meta.host_ip,
-                ports.get_sys_rpc()
-            ));
-        }
+        cfg["rpc"]["laddr"] = toml_value(format!(
+            "tcp://{}:{}",
+            &self.meta.host_ip,
+            ports.get_sys_rpc()
+        ));
 
         let mut arr = Array::new();
         arr.push("*");
@@ -708,10 +695,13 @@ where
                         .c(d!())
                         .and_then(|g| serde_json::from_str::<JsonValue>(&g).c(d!()))
                         .and_then(|mut g| {
-                            g["validators"] = vs;
+                            g["consensus_params"]["block"]["time_iota_ms"] =
+                                serde_json::to_value("1000").c(d!())?;
+                            g["app_hash"] = serde_json::to_value("").c(d!())?;
                             g["app_state"] =
                                 serde_json::to_value(app_state.clone()).c(d!())?;
-                            self.meta.genesis = Some(serde_json::from_value(g).c(d!())?);
+                            g["validators"] = vs;
+                            self.meta.genesis = Some(g);
                             Ok(())
                         })
                 })
