@@ -13,9 +13,12 @@ use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::{collections::BTreeMap, fmt, fs, io::ErrorKind, path::PathBuf, thread};
-use tendermint::{validator::Info as TmValidator, vote::Power as TmPower, Genesis};
-use tendermint_config::{
-    NodeKey, PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
+use tendermint::{
+    config::{
+        NodeKey, PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
+    },
+    validator::Info as TmValidator,
+    vote::Power as TmPower,
 };
 use toml_edit::{value as toml_value, Document};
 use vsdb::MapxRaw;
@@ -215,7 +218,7 @@ where
 
     /// the contents of `genesis.json` of all nodes
     #[serde(rename = "tendermint_genesis")]
-    pub genesis: Option<Genesis>,
+    pub genesis: Option<JsonValue>,
 
     pub custom_data: C,
 
@@ -682,27 +685,7 @@ where
 
         let remote_os = remote.hosts_os().c(d!())?;
         match remote_os {
-            HostOS::Linux => {
-                // Use 'unix abstract socket address', `man unix(7)` for more infomation.
-                // A '@'-prefix is necessary for tendermint(written in go) to distinguish its type
-                #[cfg(feature = "unix_abstract_socket")]
-                {
-                    cfg["rpc"]["laddr"] = toml_value(format!(
-                        "unix://@{}{}",
-                        random::<u64>(),
-                        &self.meta.name
-                    ));
-                }
-                #[cfg(not(feature = "unix_abstract_socket"))]
-                {
-                    cfg["rpc"]["laddr"] = toml_value(format!(
-                        "tcp://{}:{}",
-                        &host.addr,
-                        ports.get_sys_rpc()
-                    ));
-                }
-            }
-            HostOS::MacOS => {
+            HostOS::Linux | HostOS::MacOS => {
                 cfg["rpc"]["laddr"] =
                     toml_value(format!("tcp://{}:{}", &host.addr, ports.get_sys_rpc()));
             }
@@ -773,7 +756,7 @@ where
                     .read_file(PathBuf::from(&home).join(&cfg.node_key_file))
                     .c(d!())
             })
-            .and_then(|contents| NodeKey::parse_json(contents).c(d!()))?
+            .and_then(|contents| NodeKey::parse_json(contents).map_err(|e| eg!(e)))?
             .node_id()
             .to_string()
             .to_lowercase();
@@ -943,9 +926,12 @@ where
                     .c(d!())
                     .and_then(|g| serde_json::from_str::<JsonValue>(&g).c(d!()))
                     .and_then(|mut g| {
-                        g["validators"] = vs;
+                        g["consensus_params"]["block"]["time_iota_ms"] =
+                            serde_json::to_value("1000").c(d!())?;
+                        g["app_hash"] = serde_json::to_value("").c(d!())?;
                         g["app_state"] =
                             serde_json::to_value(app_state.clone()).c(d!())?;
+                        g["validators"] = vs;
                         g["genesis_time"] = JsonValue::String(
                             // '2022-xxx' --> '1022-xxx'
                             // avoid waiting time between hosts
@@ -953,7 +939,7 @@ where
                             // when the chain is starting first time
                             g["genesis_time"].as_str().unwrap().replacen('2', "1", 1),
                         );
-                        self.meta.genesis = Some(serde_json::from_value(g).c(d!())?);
+                        self.meta.genesis = Some(g);
                         Ok(())
                     })
             })
