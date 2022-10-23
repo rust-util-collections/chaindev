@@ -25,13 +25,11 @@ ruc = { version = "3.0.3", features = ["cmd","ssh"] }
 # vsdb = { path = "../vsdb/wrappers", default-features = false, features = ["bcs_codec", "sled_engine", "sled_compress"] }
 vsdb = { version = "0.48.6", default-features = false, features = ["bcs_codec", "sled_engine", "sled_compress"] }
 
-tendermint = { version = "0.28.0", optional = true }
-tendermint-config = { version = "0.28.0", optional = true }
+tendermint = { git = "https://github.com/rust-util-collections/fn-tendermint-rs", branch = "fk", optional = true }
 
 [features]
 default = ["tendermint_based"]
 
 substrate_based = []
-tendermint_based = ["tendermint","tendermint-config"]
-
+tendermint_based = ["tendermint"]
 unix_abstract_socket = []
