@@ -25,14 +25,13 @@ ruc = { version = "4.1.2", features = ["cmd","ssh"] }
 
 vsdb = { version = "0.56.1", default-features = false }
 
-tendermint = { version = "0.29.1", optional = true }
-tendermint-config = { version = "0.29.1", optional = true }
+tendermint = { git = "https://github.com/rust-util-collections/fn-tendermint-rs", branch = "fk", optional = true }
 
 [features]
 default = ["tendermint_based","vsdb_rocks_engine","vsdb_bcs_codec","vsdb_compress"]
 
 substrate_based = []
-tendermint_based = ["tendermint","tendermint-config"]
+tendermint_based = ["tendermint"]
 
 vsdb_rocks_engine = ["vsdb/rocks_engine"]
 vsdb_sled_engine = ["vsdb/sled_engine"]
