@@ -35,8 +35,6 @@ default = ["tendermint_based", "vsdb_bcs_codec", "vsdb_rocks_engine"]
 substrate_based = []
 tendermint_based = ["tendermint","tendermint-config"]
 
-unix_abstract_socket = []
-
 vsdb_rocks_engine = ["vsdb/rocks_engine"]
 vsdb_sled_engine = ["vsdb/sled_engine"]
 

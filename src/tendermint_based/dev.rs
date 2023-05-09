@@ -126,8 +126,11 @@ where
     #[serde(rename = "bootstrap_nodes")]
     pub bootstraps: BTreeMap<NodeId, N>,
 
-    #[serde(rename = "validator_or_full_nodes")]
-    pub nodes: BTreeMap<NodeId, N>,
+    #[serde(rename = "validator_nodes")]
+    pub validators: BTreeMap<NodeId, N>,
+
+    #[serde(rename = "full_nodes")]
+    pub full_nodes: BTreeMap<NodeId, N>,
 
     /// The contents of `genesis.json` of all nodes
     #[serde(rename = "tendermint_genesis")]
@@ -180,7 +183,12 @@ where
 
     pub fn get_addrports_any_node(&self) -> (HostAddrRef, Vec<u16>) {
         let addr = self.host_ip.as_str();
-        let ports = pnk!(self.nodes.values().next()).ports.get_port_list();
+        let maybe_node = self
+            .bootstraps
+            .values()
+            .chain(self.full_nodes.values())
+            .next();
+        let ports = pnk!(maybe_node).ports.get_port_list();
         (addr, ports)
     }
 }
@@ -237,8 +245,9 @@ where
                 tendermint_bin: opts.tendermint_bin_path.clone(),
                 tendermint_extra_opts: opts.tendermint_extra_opts.clone(),
                 block_itv_secs: opts.block_itv_secs,
-                nodes: Default::default(),
                 bootstraps: Default::default(),
+                validators: Default::default(),
+                full_nodes: Default::default(),
                 genesis: None,
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
@@ -257,8 +266,9 @@ where
 
         add_initial_nodes!(Bootstrap);
         for _ in 0..opts.initial_validator_num {
-            add_initial_nodes!(Node);
+            add_initial_nodes!(Validator);
         }
+        add_initial_nodes!(FullNode);
 
         env.gen_genesis(&opts.app_state)
             .c(d!())
@@ -272,7 +282,8 @@ where
             self.meta
                 .bootstraps
                 .keys()
-                .chain(self.meta.nodes.keys())
+                .chain(self.meta.validators.keys())
+                .chain(self.meta.full_nodes.keys())
                 .copied()
                 .collect()
         });
@@ -282,9 +293,13 @@ where
             .and_then(|_| self.write_cfg().c(d!()))?;
 
         for i in ids.iter() {
-            if let Some(n) = self.meta.nodes.get(i) {
-                n.start(self).c(d!())?;
-            } else if let Some(n) = self.meta.bootstraps.get(i) {
+            if let Some(n) = self
+                .meta
+                .bootstraps
+                .get(i)
+                .or_else(|| self.meta.validators.get(i))
+                .or_else(|| self.meta.full_nodes.get(i))
+            {
                 n.start(self).c(d!())?;
             } else {
                 return Err(eg!("not exist"));
@@ -310,9 +325,10 @@ where
     // - Release all occupied ports
     fn stop(&self) -> Result<()> {
         self.meta
-            .nodes
+            .bootstraps
             .values()
-            .chain(self.meta.bootstraps.values())
+            .chain(self.meta.validators.values())
+            .chain(self.meta.full_nodes.values())
             .map(|n| n.stop().c(d!()))
             .collect::<Result<Vec<_>>>()
             .map(|_| ())
@@ -341,7 +357,8 @@ where
             .meta
             .bootstraps
             .values()
-            .chain(self.meta.nodes.values())
+            .chain(self.meta.validators.values())
+            .chain(self.meta.full_nodes.values())
         {
             n.clean().c(d!())?;
         }
@@ -349,7 +366,7 @@ where
         fs::remove_dir_all(&self.meta.home).c(d!())
     }
 
-    // destroy all existing ENVs
+    // Destroy all existing ENVs
     fn destroy_all() -> Result<()> {
         for env in Self::get_env_list().c(d!())?.iter() {
             Self::load_env_by_name(env)
@@ -361,11 +378,11 @@ where
         fs::remove_dir_all(&*GLOBAL_BASE_DIR).c(d!())
     }
 
-    // bootstrap nodes are kept by system for now,
-    // so only the other nodes can be added on demand
+    // The bootstrap and validator nodes are kept by system,
+    // so only the other kind of nodes can be added on demand
     fn push_node(&mut self) -> Result<()> {
         let id = self.next_node_id();
-        let kind = Kind::Node;
+        let kind = Kind::FullNode;
         self.alloc_resources(id, kind)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
@@ -377,7 +394,7 @@ where
             id
         } else {
             self.meta
-                .nodes
+                .full_nodes
                 .keys()
                 .rev()
                 .copied()
@@ -386,7 +403,7 @@ where
         };
 
         self.meta
-            .nodes
+            .full_nodes
             .remove(&id)
             .c(d!("Node ID does not exist?"))
             .and_then(|n| n.stop().c(d!()).and_then(|_| n.clean().c(d!())))
@@ -397,7 +414,7 @@ where
         println!("{}", pnk!(serde_json::to_string_pretty(self)));
     }
 
-    // show the details of all existing ENVs
+    // Show the details of all existing ENVs
     fn show_all() -> Result<()> {
         for (idx, env) in Self::get_env_list().c(d!())?.iter().enumerate() {
             println!("\x1b[31;01m====== ENV No.{} ======\x1b[00m", idx);
@@ -410,7 +427,7 @@ where
         Ok(())
     }
 
-    // list the names of all existing ENVs
+    // List the names of all existing ENVs
     fn list_all() -> Result<()> {
         let list = Self::get_env_list().c(d!())?;
 
@@ -440,8 +457,9 @@ where
 
         let cfg_path = format!("{}/config/config.toml", &home);
         let role_mark = match kind {
-            Kind::Node => "node",
             Kind::Bootstrap => "bootstrap",
+            Kind::Validator => "validator",
+            Kind::FullNode => "full_node",
         };
         let mut cfg = fs::read_to_string(&cfg_path)
             .c(d!())
@@ -461,32 +479,19 @@ where
             ports.get_sys_abci()
         ));
 
-        #[cfg(all(target_os = "linux", feature = "unix_abstract_socket"))]
-        {
-            // Use 'unix abstract socket address', `man unix(7)` for more infomation.
-            // A '@'-prefix is necessary for tendermint(written in go) to distinguish its type
-            cfg["rpc"]["laddr"] = toml_value(format!(
-                "unix://@{}{}",
-                rand::random::<u64>(),
-                &self.meta.name
-            ));
-        }
-
-        #[cfg(any(not(target_os = "linux"), not(feature = "unix_abstract_socket")))]
-        {
-            cfg["rpc"]["laddr"] = toml_value(format!(
-                "tcp://{}:{}",
-                &self.meta.host_ip,
-                ports.get_sys_rpc()
-            ));
-        }
+        cfg["rpc"]["laddr"] = toml_value(format!(
+            "tcp://{}:{}",
+            &self.meta.host_ip,
+            ports.get_sys_rpc()
+        ));
 
         let mut arr = Array::new();
         arr.push("*");
         cfg["rpc"]["cors_allowed_origins"] = toml_value(arr);
         cfg["rpc"]["max_open_connections"] = toml_value(10_0000);
 
-        cfg["p2p"]["pex"] = toml_value(true);
+        cfg["tx_index"]["indexer"] = toml_value("null");
+
         cfg["p2p"]["seed_mode"] = toml_value(false);
         cfg["p2p"]["addr_book_strict"] = toml_value(false);
         cfg["p2p"]["allow_duplicate_ip"] = toml_value(true);
@@ -500,6 +505,8 @@ where
             &self.meta.host_ip,
             ports.get_sys_p2p()
         ));
+        cfg["p2p"]["max_num_inbound_peers"] = toml_value(40);
+        cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
 
         cfg["consensus"]["timeout_propose"] = toml_value("8s");
         cfg["consensus"]["timeout_propose_delta"] = toml_value("500ms");
@@ -507,12 +514,12 @@ where
         cfg["consensus"]["timeout_prevote_delta"] = toml_value("500ms");
         cfg["consensus"]["timeout_precommit"] = toml_value("0s");
         cfg["consensus"]["timeout_precommit_delta"] = toml_value("500ms");
-        let block_itv = self.meta.block_itv_secs.to_millisecond().c(d!())?;
-        let itv = (block_itv / 2).to_string() + "ms";
-        cfg["consensus"]["timeout_commit"] = toml_value(&itv);
-        cfg["consensus"]["skip_timeout_commit"] = toml_value(false);
-        cfg["consensus"]["create_empty_blocks"] = toml_value(true);
-        cfg["consensus"]["create_empty_blocks_interval"] = toml_value(itv);
+
+        // Avoid creating empty blocks,
+        // also, we should not change the AppHash without new transactions
+        cfg["consensus"]["timeout_commit"] = toml_value("0s");
+        cfg["consensus"]["create_empty_blocks"] = toml_value(false);
+        cfg["consensus"]["create_empty_blocks_interval"] = toml_value("0s");
 
         cfg["mempool"]["recheck"] = toml_value(false);
         cfg["mempool"]["broadcast"] = toml_value(true);
@@ -520,22 +527,13 @@ where
         cfg["mempool"]["cache_size"] = toml_value(2_000_000);
         cfg["mempool"]["max_txs_bytes"] = toml_value(10 * GB);
         cfg["mempool"]["max_tx_bytes"] = toml_value(5 * MB);
-        cfg["mempool"]["ttl-num-blocks"] = toml_value(16);
+        // cfg["mempool"]["ttl-num-blocks"] = toml_value(4);
 
         cfg["moniker"] = toml_value(format!("{}-{}", &self.meta.name, id));
 
         match kind {
-            Kind::Node => {
-                cfg["p2p"]["max_num_inbound_peers"] = toml_value(40);
-                cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
-                cfg["tx_index"]["indexer"] = toml_value("null");
-            }
-            Kind::Bootstrap => {
-                cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
-                cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
-                cfg["tx_index"]["indexer"] = toml_value("kv");
-                cfg["tx_index"]["index_all_keys"] = toml_value(true);
-            }
+            Kind::Validator => cfg["p2p"]["pex"] = toml_value(false),
+            Kind::FullNode | Kind::Bootstrap => cfg["p2p"]["pex"] = toml_value(true),
         }
 
         // 3.
@@ -554,8 +552,9 @@ where
         };
 
         match kind {
-            Kind::Node => self.meta.nodes.insert(id, node),
             Kind::Bootstrap => self.meta.bootstraps.insert(id, node),
+            Kind::Validator => self.meta.validators.insert(id, node),
+            Kind::FullNode => self.meta.full_nodes.insert(id, node),
         };
 
         // 4.
@@ -598,9 +597,10 @@ where
     fn update_peer_cfg(&self) -> Result<()> {
         for n in self
             .meta
-            .nodes
+            .bootstraps
             .values()
-            .chain(self.meta.bootstraps.values())
+            .chain(self.meta.validators.values())
+            .chain(self.meta.full_nodes.values())
         {
             let cfg_path = format!("{}/config/config.toml", &n.home);
             let mut cfg = fs::read_to_string(&cfg_path)
@@ -608,9 +608,10 @@ where
                 .and_then(|c| c.parse::<Document>().c(d!()))?;
             cfg["p2p"]["persistent_peers"] = toml_value(
                 self.meta
-                    .nodes
+                    .bootstraps
                     .values()
-                    .chain(self.meta.bootstraps.values())
+                    .chain(self.meta.validators.values())
+                    .chain(self.meta.full_nodes.values())
                     .filter(|peer| peer.id != n.id)
                     .map(|n| {
                         format!(
@@ -620,6 +621,15 @@ where
                             n.ports.get_sys_p2p()
                         )
                     })
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+            cfg["p2p"]["private_peer_ids"] = toml_value(
+                self.meta
+                    .validators
+                    .values()
+                    .filter(|peer| peer.id != n.id)
+                    .map(|n| n.tm_id.clone())
                     .collect::<Vec<_>>()
                     .join(","),
             );
@@ -647,7 +657,7 @@ where
 
         let gen = |genesis_file: String| {
             self.meta
-                .nodes
+                .validators
                 .values()
                 .map(|n| {
                     TmConfig::load_toml_file(&format!("{}/config/config.toml", &n.home))
@@ -715,15 +725,17 @@ where
             self.meta
                 .bootstraps
                 .keys()
-                .chain(self.meta.nodes.keys())
+                .chain(self.meta.validators.keys())
+                .chain(self.meta.full_nodes.keys())
                 .copied()
                 .collect()
         });
 
         for n in nodes.iter() {
             self.meta
-                .nodes
+                .full_nodes
                 .get(n)
+                .or_else(|| self.meta.validators.get(n))
                 .or_else(|| self.meta.bootstraps.get(n))
                 .c(d!())
                 .and_then(|n| {
@@ -871,9 +883,9 @@ impl<P: NodePorts> Node<P> {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum Kind {
-    #[serde(rename = "ValidatorOrFull")]
-    Node,
     Bootstrap,
+    Validator,
+    FullNode,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

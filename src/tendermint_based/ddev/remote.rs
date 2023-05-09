@@ -297,9 +297,10 @@ where
 
     let errlist = thread::scope(|s| {
         env.meta
-            .nodes
+            .bootstraps
             .values()
-            .chain(env.meta.bootstraps.values())
+            .chain(env.meta.validators.values())
+            .chain(env.meta.full_nodes.values())
             .flat_map(|n| {
                 ["app.log", "tendermint.log", "mgmt.log"].iter().map(|log| {
                     (
