@@ -501,17 +501,12 @@ where
         cfg["consensus"]["timeout_prevote_delta"] = toml_value("500ms");
         cfg["consensus"]["timeout_precommit"] = toml_value("0s");
         cfg["consensus"]["timeout_precommit_delta"] = toml_value("500ms");
-        let block_itv = self
-            .meta
-            .block_itv_secs
-            .to_millisecond()
-            .c(d!())?
-            .to_string()
-            + "ms";
-        cfg["consensus"]["timeout_commit"] = toml_value(&block_itv);
+        let block_itv = self.meta.block_itv_secs.to_millisecond().c(d!())?;
+        let itv = (block_itv / 2).to_string() + "ms";
+        cfg["consensus"]["timeout_commit"] = toml_value(&itv);
         cfg["consensus"]["skip_timeout_commit"] = toml_value(false);
         cfg["consensus"]["create_empty_blocks"] = toml_value(true);
-        cfg["consensus"]["create_empty_blocks_interval"] = toml_value(block_itv);
+        cfg["consensus"]["create_empty_blocks_interval"] = toml_value(itv);
 
         cfg["mempool"]["recheck"] = toml_value(false);
         cfg["mempool"]["broadcast"] = toml_value(true);
