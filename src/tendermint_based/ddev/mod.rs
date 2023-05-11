@@ -182,11 +182,11 @@ where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     N: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
-    /// the name of this env
+    /// The name of this env
     #[serde(flatten)]
     pub name: EnvName,
 
-    /// data path of this env
+    /// The data path of this env
     #[serde(rename = "env_home_dir")]
     pub home: String,
 
@@ -203,7 +203,7 @@ where
 
     pub tendermint_extra_opts: String,
 
-    /// seconds between two blocks
+    /// Seconds between two blocks
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv_secs: BlockItv,
 
@@ -213,13 +213,13 @@ where
     #[serde(rename = "validator_or_full_nodes")]
     pub nodes: BTreeMap<NodeId, N>,
 
-    /// the contents of `genesis.json` of all nodes
+    /// The contents of `genesis.json` of all nodes
     #[serde(rename = "tendermint_genesis")]
     pub genesis: Option<Genesis>,
 
     pub custom_data: C,
 
-    // the latest/max id of current nodes
+    // The latest id of current nodes
     pub(crate) next_node_id: NodeId,
 }
 
@@ -290,8 +290,8 @@ where
     P: NodePorts,
     S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
-    // - initilize a new env
-    // - `genesis.json` will be created
+    // - Initilize a new env
+    // - Create `genesis.json`
     fn create<A, U>(cfg: &EnvCfg<A, C, P, U>, opts: &EnvOpts<A, C>, s: S) -> Result<()>
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
@@ -403,7 +403,7 @@ where
             .and_then(|_| env.start(None).c(d!()))
     }
 
-    // start one or all nodes
+    // Start one or all nodes
     fn start(&mut self, n: Option<NodeId>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
@@ -441,7 +441,7 @@ where
         check_errlist!(errlist)
     }
 
-    // start all existing ENVs
+    // Start all existing ENVs
     fn start_all() -> Result<()> {
         for env in Self::get_env_list().c(d!())?.iter() {
             Self::load_env_by_name(env)
@@ -453,8 +453,8 @@ where
         Ok(())
     }
 
-    // - stop all processes
-    // - release all occupied ports
+    // - Stop all processes
+    // - Release all occupied ports
     fn stop(&self) -> Result<()> {
         let errlist = thread::scope(|s| {
             self.meta
@@ -472,7 +472,7 @@ where
         check_errlist!(errlist)
     }
 
-    // stop all existing ENVs
+    // Stop all existing ENVs
     fn stop_all() -> Result<()> {
         for env in Self::get_env_list().c(d!())?.iter() {
             Self::load_env_by_name(env)
@@ -484,9 +484,9 @@ where
         Ok(())
     }
 
-    // destroy all nodes
-    // - stop all running processes
-    // - delete the data of every nodes
+    // Destroy all nodes
+    // - Stop all running processes
+    // - Delete the data of every nodes
     fn destroy(&self) -> Result<()> {
         info_omit!(self.stop());
 
@@ -531,7 +531,7 @@ where
         check_errlist!(errlist)
     }
 
-    // destroy all existing ENVs
+    // Destroy all existing ENVs
     fn destroy_all() -> Result<()> {
         let mut hosts = BTreeMap::new();
         for env in Self::get_env_list().c(d!())?.iter() {
@@ -594,7 +594,7 @@ where
         println!("{}", pnk!(serde_json::to_string_pretty(self)));
     }
 
-    // show the details of all existing ENVs
+    // Show the details of all existing ENVs
     fn show_all() -> Result<()> {
         for (idx, env) in Self::get_env_list().c(d!())?.iter().enumerate() {
             println!("\x1b[31;01m====== ENV No.{} ======\x1b[00m", idx);
@@ -607,7 +607,7 @@ where
         Ok(())
     }
 
-    // list the names of all existing ENVs
+    // List the names of all existing ENVs
     fn list_all() -> Result<()> {
         let list = Self::get_env_list().c(d!())?;
 
@@ -648,10 +648,10 @@ where
         remote::collect_logs_from_nodes(self, local_base_dir).c(d!())
     }
 
-    // 1. allocate host and ports
-    // 2. change configs: ports, bootstrap address, etc.
-    // 3. write new configs of tendermint to local/remote disk
-    // 4. insert new node to the meta of env
+    // 1. Allocate host and ports
+    // 2. Change configs: ports, bootstrap address, etc.
+    // 3. Write new configs of tendermint to local/remote disk
+    // 4. Insert new node to the meta of env
     fn alloc_resources(&mut self, id: NodeId, kind: Kind) -> Result<()> {
         // 1.
         let (host, ports) = self.alloc_hosts_ports(&kind).c(d!())?;
@@ -1025,7 +1025,7 @@ where
         })
     }
 
-    // alloc <host,ports> for a new node
+    // Alloc <host,ports> for a new node
     fn alloc_hosts_ports(&mut self, node_kind: &Kind) -> Result<(HostMeta, P)> {
         let host = self.alloc_host(node_kind).c(d!())?;
         let ports = self.alloc_ports(node_kind, &host).c(d!())?;
@@ -1163,14 +1163,14 @@ impl<P: NodePorts> Node<P> {
             .c(d!())
     }
 
-    // - release all occupied ports
-    // - remove all files related to this node
+    // - Release all occupied ports
+    // - Remove all files related to this node
     fn clean(&self) -> Result<()> {
         for port in self.ports.get_port_list().iter() {
             PC.remove(&format!("{},{}", &self.host.addr, port));
         }
 
-        // remove all related files
+        // Remove all related files
         Remote::from(&self.host)
             .exec_cmd(&format!("rm -rf {}", &self.home))
             .c(d!())
@@ -1236,13 +1236,13 @@ where
     A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
-    /// host list of the env
+    /// The host list of the env
     pub hosts: Hosts,
 
-    /// seconds between two blocks
+    /// Seconds between two blocks
     pub block_itv_secs: BlockItv,
 
-    /// how many initial validators should be created,
+    /// How many initial validators should be created,
     /// default to 4
     pub initial_validator_num: u8,
 

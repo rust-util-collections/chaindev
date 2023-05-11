@@ -37,7 +37,7 @@ impl<'a> From<&'a Host> for Remote<'a> {
 }
 
 impl<'a> Remote<'a> {
-    // execute a cmd on a remote host and get its outputs
+    // Execute a cmd on a remote host and get its outputs
     pub(super) fn exec_cmd(&self, cmd: &str) -> Result<String> {
         let cmd = format!("ulimit -n 100000 >/dev/null 2>&1;{}", cmd);
         self.inner
@@ -135,7 +135,7 @@ impl<'a> Remote<'a> {
     // }
 }
 
-// put a local file to some hosts
+// Put a local file to some hosts
 pub(super) fn put_file_to_hosts(
     hosts: &Hosts,
     local_path: &str,
@@ -167,7 +167,7 @@ pub(super) fn put_file_to_hosts(
     check_errlist!(errlist)
 }
 
-// get a remote file from some hosts
+// Get a remote file from some hosts
 pub(super) fn get_file_from_hosts(
     hosts: &Hosts,
     remote_path: &str,
@@ -204,7 +204,7 @@ pub(super) fn get_file_from_hosts(
     check_errlist!(errlist)
 }
 
-// execute some commands or a script on some hosts
+// Execute some commands or a script on some hosts
 pub(super) fn exec_cmds_on_hosts(
     hosts: &Hosts,
     cmd: Option<&str>,

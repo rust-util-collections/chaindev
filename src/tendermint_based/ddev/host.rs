@@ -32,10 +32,10 @@ pub type HostAddrRef<'a> = &'a str;
 pub struct Host {
     pub meta: HostMeta,
 
-    // weight used when allocating nodes
+    // The weight used when allocating nodes
     pub(super) weight: u64,
 
-    // how many nodes have been created
+    // How many nodes have been created
     pub(super) node_cnt: u64,
 }
 

@@ -99,11 +99,11 @@ where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     N: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
-    /// the name of this env
+    /// The name of this env
     #[serde(flatten)]
     pub name: EnvName,
 
-    /// data path of this env
+    /// The data path of this env
     #[serde(rename = "env_home_dir")]
     pub home: String,
 
@@ -119,7 +119,7 @@ where
 
     pub tendermint_extra_opts: String,
 
-    /// seconds between two blocks
+    /// Seconds between two blocks
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv_secs: BlockItv,
 
@@ -129,13 +129,13 @@ where
     #[serde(rename = "validator_or_full_nodes")]
     pub nodes: BTreeMap<NodeId, N>,
 
-    /// the contents of `genesis.json` of all nodes
+    /// The contents of `genesis.json` of all nodes
     #[serde(rename = "tendermint_genesis")]
     pub genesis: Option<Genesis>,
 
     pub custom_data: C,
 
-    // the latest/max id of current nodes
+    // The latest id of current nodes
     pub(crate) next_node_id: NodeId,
 }
 
@@ -205,8 +205,8 @@ where
     P: NodePorts,
     S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
-    // - initilize a new env
-    // - `genesis.json` will be created
+    // - Initilize a new env
+    // - Create `genesis.json`
     fn create<A, U>(cfg: &EnvCfg<A, C, P, U>, opts: &EnvOpts<A, C>, s: S) -> Result<()>
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
@@ -266,7 +266,7 @@ where
             .and_then(|_| env.start(None).c(d!()))
     }
 
-    // start one or all nodes
+    // Start one or all nodes
     fn start(&mut self, n: Option<NodeId>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
@@ -294,7 +294,7 @@ where
         Ok(())
     }
 
-    // start all existing ENVs
+    // Start all existing ENVs
     fn start_all() -> Result<()> {
         for env in Self::get_env_list().c(d!())?.iter() {
             Self::load_env_by_name(env)
@@ -306,8 +306,8 @@ where
         Ok(())
     }
 
-    // - stop all processes
-    // - release all occupied ports
+    // - Stop all processes
+    // - Release all occupied ports
     fn stop(&self) -> Result<()> {
         self.meta
             .nodes
@@ -318,7 +318,7 @@ where
             .map(|_| ())
     }
 
-    // stop all existing ENVs
+    // Stop all existing ENVs
     fn stop_all() -> Result<()> {
         for env in Self::get_env_list().c(d!())?.iter() {
             Self::load_env_by_name(env)
@@ -330,9 +330,9 @@ where
         Ok(())
     }
 
-    // destroy all nodes
-    // - stop all running processes
-    // - delete the data of every nodes
+    // Destroy all nodes
+    // - Stop all running processes
+    // - Delete the data of every nodes
     fn destroy(&self) -> Result<()> {
         info_omit!(self.stop());
         sleep_ms!(10);
@@ -420,10 +420,10 @@ where
         Ok(())
     }
 
-    // 1. allocate ports
-    // 2. change configs: ports, bootstrap address, etc.
-    // 3. insert new node to the meta of env
-    // 4. write new configs of tendermint to disk
+    // 1. Allocate ports
+    // 2. Change configs: ports, bootstrap address, etc.
+    // 3. Insert new node to the meta of env
+    // 4. Write new configs of tendermint to disk
     fn alloc_resources(&mut self, id: NodeId, kind: Kind) -> Result<()> {
         // 1.
         let ports = self.alloc_ports(&kind).c(d!())?;
@@ -556,7 +556,7 @@ where
         fs::write(cfg_path, cfg.to_string()).c(d!())
     }
 
-    // global alloctor for ports
+    // Global alloctor for ports
     fn alloc_ports(&self, node_kind: &Kind) -> Result<P> {
         let reserved_ports = P::reserved();
 
@@ -703,7 +703,7 @@ where
         .and_then(|_| fs::remove_dir_all(tmp_home).c(d!()))
     }
 
-    // apply genesis to one/all nodes in the same env
+    // Apply genesis to one/all nodes in the same env
     fn apply_genesis(&mut self, n: Option<NodeId>) -> Result<()> {
         let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
@@ -853,8 +853,8 @@ impl<P: NodePorts> Node<P> {
             })
     }
 
-    // - release all occupied ports
-    // - remove all files related to this node
+    // - Release all occupied ports
+    // - Remove all files related to this node
     fn clean(&self) -> Result<()> {
         for port in self.ports.get_port_list().into_iter() {
             PortsCache::remove(port).c(d!())?;
@@ -903,13 +903,13 @@ where
     A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
-    /// default to '127.0.0.1'
+    /// Default to '127.0.0.1'
     pub host_ip: String,
 
-    /// seconds between two blocks
+    /// Seconds between two blocks
     pub block_itv_secs: BlockItv,
 
-    /// how many initial validators should be created,
+    /// How many initial validators should be created,
     /// default to 4
     pub initial_validator_num: u8,
 
