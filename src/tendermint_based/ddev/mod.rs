@@ -739,10 +739,10 @@ where
             .c(d!())?
             .to_string()
             + "ms";
-        cfg["consensus"]["timeout_commit"] = toml_value(block_itv);
+        cfg["consensus"]["timeout_commit"] = toml_value(&block_itv);
         cfg["consensus"]["skip_timeout_commit"] = toml_value(false);
-        cfg["consensus"]["create_empty_blocks"] = toml_value(false);
-        // cfg["consensus"]["create_empty_blocks_interval"] = toml_value(&block_itv);
+        cfg["consensus"]["create_empty_blocks"] = toml_value(true);
+        cfg["consensus"]["create_empty_blocks_interval"] = toml_value(block_itv);
 
         cfg["mempool"]["recheck"] = toml_value(false);
         cfg["mempool"]["broadcast"] = toml_value(true);
