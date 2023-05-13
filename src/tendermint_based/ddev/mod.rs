@@ -74,6 +74,18 @@ where
                 .c(d!())
                 .and_then(|env| env.destroy().c(d!())),
             Op::DestroyAll => Env::<C, P, S>::destroy_all().c(d!()),
+            Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| env.push_node(host_addr.as_deref()).c(d!())),
+            Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| env.kick_node(*node_id).c(d!())),
+            Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .map(|mut env| env.protect()),
+            Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .map(|mut env| env.unprotect()),
             Op::Start => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.start(None).c(d!())),
@@ -82,12 +94,6 @@ where
                 .c(d!())
                 .and_then(|env| env.stop().c(d!())),
             Op::StopAll => Env::<C, P, S>::stop_all().c(d!()),
-            Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| env.push_node(host_addr.as_deref()).c(d!())),
-            Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| env.kick_node(*node_id).c(d!())),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
             }),
@@ -279,6 +285,7 @@ where
     S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     pub meta: EnvMeta<C, Node<P>>,
+    pub is_protected: bool,
 
     #[serde(rename = "node_options_generator")]
     pub node_opts_generator: S,
@@ -362,6 +369,7 @@ where
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
+            is_protected: true,
             node_opts_generator: s,
         };
 
@@ -401,6 +409,145 @@ where
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
             .and_then(|_| env.start(None).c(d!()))
+    }
+
+    // Destroy all nodes
+    // - Stop all running processes
+    // - Delete the data of every nodes
+    fn destroy(&self) -> Result<()> {
+        if self.is_protected {
+            return Err(eg!(
+                "This env({}) is protected, `unprotect` it first",
+                self.meta.name
+            ));
+        }
+
+        info_omit!(self.stop());
+        sleep_ms!(10);
+
+        let errlist = thread::scope(|s| {
+            self.meta
+                .bootstraps
+                .values()
+                .chain(self.meta.nodes.values())
+                .map(|n| s.spawn(|| n.clean().c(d!())))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|h| h.join())
+                .filter(|t| t.is_err())
+                .collect::<Vec<_>>()
+        });
+
+        check_errlist!(@errlist);
+
+        fs::remove_dir_all(&self.meta.home).c(d!())?;
+
+        let errlist = thread::scope(|s| {
+            self.meta
+                .hosts
+                .as_ref()
+                .values()
+                .map(|h| {
+                    s.spawn(move || {
+                        let remote = Remote::from(h);
+                        let cmd = format!("rm -rf {}", &self.meta.home);
+                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|h| h.join())
+                .filter(|t| t.is_err())
+                .collect::<Vec<_>>()
+        });
+
+        check_errlist!(errlist)
+    }
+
+    // Destroy all existing ENVs
+    fn destroy_all() -> Result<()> {
+        let mut hosts = BTreeMap::new();
+        for name in Self::get_env_list().c(d!())?.iter() {
+            let mut env = Self::load_env_by_name(name)
+                .c(d!())?
+                .c(d!("BUG: env not found!"))?;
+
+            if env.is_protected {
+                print_msg!("This env({}) is protected, `unprotect` it first", name);
+                continue;
+            }
+
+            env.destroy().c(d!())?;
+            hosts.append(env.meta.hosts.as_mut());
+        }
+        fs::remove_dir_all(&*GLOBAL_BASE_DIR)
+            .c(d!())
+            .and_then(|_| {
+                hosts
+                    .values()
+                    .map(|h| {
+                        let remote = Remote::from(h);
+                        let cmd = format!("rm -rf {}", &*GLOBAL_BASE_DIR);
+                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .map(|_| ())
+    }
+
+    // bootstrap nodes are kept by system for now,
+    // so only the other nodes can be added on demand
+    fn push_node(&mut self, host_addr: Option<HostAddrRef>) -> Result<()> {
+        let id = self.next_node_id();
+        let kind = Kind::Node;
+        self.alloc_resources(id, kind, host_addr)
+            .c(d!())
+            .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
+            .and_then(|_| self.start(Some(id)).c(d!()))
+    }
+
+    fn kick_node(&mut self, node_id: Option<NodeId>) -> Result<()> {
+        if self.is_protected {
+            return Err(eg!(
+                "This env({}) is protected, `unprotect` it first",
+                self.meta.name
+            ));
+        }
+
+        let id = if let Some(id) = node_id {
+            id
+        } else {
+            self.meta
+                .nodes
+                .keys()
+                .rev()
+                .copied()
+                .next()
+                .c(d!("no node found"))?
+        };
+
+        self.meta
+            .nodes
+            .remove(&id)
+            .c(d!("Node ID does not exist?"))
+            .and_then(|n| {
+                self.meta
+                    .hosts
+                    .as_mut()
+                    .get_mut(&n.host.addr)
+                    .unwrap()
+                    .node_cnt -= 1;
+                n.stop().c(d!()).and_then(|_| n.clean().c(d!()))
+            })
+            .and_then(|_| self.write_cfg().c(d!()))
+    }
+
+    fn protect(&mut self) {
+        self.is_protected = true;
+    }
+
+    fn unprotect(&mut self) {
+        self.is_protected = false;
     }
 
     // Start one or all nodes
@@ -482,118 +629,6 @@ where
                 .c(d!())?;
         }
         Ok(())
-    }
-
-    // Destroy all nodes
-    // - Stop all running processes
-    // - Delete the data of every nodes
-    fn destroy(&self) -> Result<()> {
-        info_omit!(self.stop());
-
-        sleep_ms!(10);
-
-        let errlist = thread::scope(|s| {
-            self.meta
-                .bootstraps
-                .values()
-                .chain(self.meta.nodes.values())
-                .map(|n| s.spawn(|| n.clean().c(d!())))
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .collect::<Vec<_>>()
-        });
-
-        check_errlist!(@errlist);
-
-        fs::remove_dir_all(&self.meta.home).c(d!())?;
-
-        let errlist = thread::scope(|s| {
-            self.meta
-                .hosts
-                .as_ref()
-                .values()
-                .map(|h| {
-                    s.spawn(move || {
-                        let remote = Remote::from(h);
-                        let cmd = format!("rm -rf {}", &self.meta.home);
-                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
-                    })
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .collect::<Vec<_>>()
-        });
-
-        check_errlist!(errlist)
-    }
-
-    // Destroy all existing ENVs
-    fn destroy_all() -> Result<()> {
-        let mut hosts = BTreeMap::new();
-        for env in Self::get_env_list().c(d!())?.iter() {
-            let mut env = Self::load_env_by_name(env)
-                .c(d!())?
-                .c(d!("BUG: env not found!"))?;
-            env.destroy().c(d!())?;
-            hosts.append(env.meta.hosts.as_mut());
-        }
-        fs::remove_dir_all(&*GLOBAL_BASE_DIR)
-            .c(d!())
-            .and_then(|_| {
-                hosts
-                    .values()
-                    .map(|h| {
-                        let remote = Remote::from(h);
-                        let cmd = format!("rm -rf {}", &*GLOBAL_BASE_DIR);
-                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
-                    })
-                    .collect::<Result<Vec<_>>>()
-            })
-            .map(|_| ())
-    }
-
-    // bootstrap nodes are kept by system for now,
-    // so only the other nodes can be added on demand
-    fn push_node(&mut self, host_addr: Option<HostAddrRef>) -> Result<()> {
-        let id = self.next_node_id();
-        let kind = Kind::Node;
-        self.alloc_resources(id, kind, host_addr)
-            .c(d!())
-            .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.start(Some(id)).c(d!()))
-    }
-
-    fn kick_node(&mut self, node_id: Option<NodeId>) -> Result<()> {
-        let id = if let Some(id) = node_id {
-            id
-        } else {
-            self.meta
-                .nodes
-                .keys()
-                .rev()
-                .copied()
-                .next()
-                .c(d!("no node found"))?
-        };
-
-        self.meta
-            .nodes
-            .remove(&id)
-            .c(d!("Node ID does not exist?"))
-            .and_then(|n| {
-                self.meta
-                    .hosts
-                    .as_mut()
-                    .get_mut(&n.host.addr)
-                    .unwrap()
-                    .node_cnt -= 1;
-                n.stop().c(d!()).and_then(|_| n.clean().c(d!()))
-            })
-            .and_then(|_| self.write_cfg().c(d!()))
     }
 
     fn show(&self) {
@@ -1226,12 +1261,14 @@ where
     Create(EnvOpts<A, C>),
     Destroy,
     DestroyAll,
+    PushNode(Option<HostAddr>),
+    KickNode(Option<NodeId>),
+    Protect,
+    Unprotect,
     Start,
     StartAll,
     Stop,
     StopAll,
-    PushNode(Option<HostAddr>),
-    KickNode(Option<NodeId>),
     Show,
     ShowAll,
     List,

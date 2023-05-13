@@ -1,5 +1,17 @@
 # Change log
 
+#### v0.13.x
+
+- Mark all ENVs as `protected` by default
+  - `Destroy` / `DestroyAll` / `KickNode` is not allowed for a `protected` ENV
+  - `Unprotect` operation is designed to remove the `protected` mark
+
+......
+
+......
+
+......
+
 #### v0.3.x
 
 - Limit block size up to 1 MB, in genesis
