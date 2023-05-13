@@ -78,9 +78,9 @@ where
             Op::PushNode => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_node().c(d!())),
-            Op::PopNode => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_node().c(d!())),
+                .and_then(|mut env| env.kick_node(*node_id).c(d!())),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
             }),
@@ -372,17 +372,23 @@ where
             .and_then(|_| self.start(Some(id)).c(d!()))
     }
 
-    // the first node(validator) can not removed
-    fn kick_node(&mut self) -> Result<()> {
+    fn kick_node(&mut self, node_id: Option<NodeId>) -> Result<()> {
+        let id = if let Some(id) = node_id {
+            id
+        } else {
+            self.meta
+                .nodes
+                .keys()
+                .rev()
+                .copied()
+                .next()
+                .c(d!("no node found"))?
+        };
+
         self.meta
             .nodes
-            .keys()
-            .skip(1)
-            .rev()
-            .copied()
-            .next()
-            .c(d!())
-            .and_then(|k| self.meta.nodes.remove(&k).c(d!()))
+            .remove(&id)
+            .c(d!("Node ID does not exist?"))
             .and_then(|n| n.stop().c(d!()).and_then(|_| n.clean().c(d!())))
             .and_then(|_| self.write_cfg().c(d!()))
     }
@@ -887,7 +893,7 @@ where
     Stop,
     StopAll,
     PushNode,
-    PopNode,
+    KickNode(Option<NodeId>),
     Show,
     ShowAll,
     List,

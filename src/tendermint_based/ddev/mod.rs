@@ -82,12 +82,12 @@ where
                 .c(d!())
                 .and_then(|env| env.stop().c(d!())),
             Op::StopAll => Env::<C, P, S>::stop_all().c(d!()),
-            Op::PushNode => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.push_node().c(d!())),
-            Op::PopNode => Env::<C, P, S>::load_env_by_cfg(self)
+                .and_then(|mut env| env.push_node(host_addr.as_deref()).c(d!())),
+            Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_node().c(d!())),
+                .and_then(|mut env| env.kick_node(*node_id).c(d!())),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
             }),
@@ -388,7 +388,7 @@ where
         macro_rules! add_initial_nodes {
             ($kind: tt) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, Kind::$kind).c(d!())?;
+                env.alloc_resources(id, Kind::$kind, None).c(d!())?;
             }};
         }
 
@@ -558,26 +558,32 @@ where
 
     // bootstrap nodes are kept by system for now,
     // so only the other nodes can be added on demand
-    fn push_node(&mut self) -> Result<()> {
+    fn push_node(&mut self, host_addr: Option<HostAddrRef>) -> Result<()> {
         let id = self.next_node_id();
         let kind = Kind::Node;
-        self.alloc_resources(id, kind)
+        self.alloc_resources(id, kind, host_addr)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
             .and_then(|_| self.start(Some(id)).c(d!()))
     }
 
-    // bootstrap nodes and the first fullnode can not be removed.
-    fn kick_node(&mut self) -> Result<()> {
+    fn kick_node(&mut self, node_id: Option<NodeId>) -> Result<()> {
+        let id = if let Some(id) = node_id {
+            id
+        } else {
+            self.meta
+                .nodes
+                .keys()
+                .rev()
+                .copied()
+                .next()
+                .c(d!("no node found"))?
+        };
+
         self.meta
             .nodes
-            .keys()
-            .skip(1)
-            .rev()
-            .copied()
-            .next()
-            .c(d!("at least one Full Node should be kept!"))
-            .and_then(|k| self.meta.nodes.remove(&k).c(d!()))
+            .remove(&id)
+            .c(d!("Node ID does not exist?"))
             .and_then(|n| {
                 self.meta
                     .hosts
@@ -652,9 +658,14 @@ where
     // 2. Change configs: ports, bootstrap address, etc.
     // 3. Write new configs of tendermint to local/remote disk
     // 4. Insert new node to the meta of env
-    fn alloc_resources(&mut self, id: NodeId, kind: Kind) -> Result<()> {
+    fn alloc_resources(
+        &mut self,
+        id: NodeId,
+        kind: Kind,
+        host_addr: Option<HostAddrRef>,
+    ) -> Result<()> {
         // 1.
-        let (host, ports) = self.alloc_hosts_ports(&kind).c(d!())?;
+        let (host, ports) = self.alloc_hosts_ports(&kind, host_addr).c(d!())?;
         let remote = Remote::from(&host);
 
         // 2.
@@ -1026,13 +1037,31 @@ where
     }
 
     // Alloc <host,ports> for a new node
-    fn alloc_hosts_ports(&mut self, node_kind: &Kind) -> Result<(HostMeta, P)> {
-        let host = self.alloc_host(node_kind).c(d!())?;
+    fn alloc_hosts_ports(
+        &mut self,
+        node_kind: &Kind,
+        host_addr: Option<HostAddrRef>,
+    ) -> Result<(HostMeta, P)> {
+        let host = self.alloc_host(node_kind, host_addr).c(d!())?;
         let ports = self.alloc_ports(node_kind, &host).c(d!())?;
         Ok((host, ports))
     }
 
-    fn alloc_host(&mut self, node_kind: &Kind) -> Result<HostMeta> {
+    fn alloc_host(
+        &mut self,
+        node_kind: &Kind,
+        host_addr: Option<HostAddrRef>,
+    ) -> Result<HostMeta> {
+        if let Some(addr) = host_addr {
+            return self
+                .meta
+                .hosts
+                .as_ref()
+                .get(addr)
+                .c(d!())
+                .map(|h| h.meta.clone());
+        }
+
         let (max_host, max_weight) = self
             .meta
             .hosts
@@ -1201,8 +1230,8 @@ where
     StartAll,
     Stop,
     StopAll,
-    PushNode,
-    PopNode,
+    PushNode(Option<HostAddr>),
+    KickNode(Option<NodeId>),
     Show,
     ShowAll,
     List,
