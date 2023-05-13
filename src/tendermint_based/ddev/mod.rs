@@ -584,6 +584,7 @@ where
             .and_then(|_| self.start(Some(id)).c(d!()))
     }
 
+    // The bootstrap node should not be removed
     fn kick_node(&mut self, node_id: Option<NodeId>) -> Result<()> {
         let id = if let Some(id) = node_id {
             id
@@ -594,12 +595,14 @@ where
                 .rev()
                 .copied()
                 .next()
+                .or_else(|| self.meta.validators.keys().rev().copied().next())
                 .c(d!("no node found"))?
         };
 
         self.meta
             .full_nodes
             .remove(&id)
+            .or_else(|| self.meta.validators.remove(&id))
             .c(d!("Node ID does not exist?"))
             .and_then(|n| {
                 self.meta
