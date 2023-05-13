@@ -380,9 +380,12 @@ where
             .and_then(|_| self.write_cfg().c(d!()))?;
 
         for i in ids.iter() {
-            if let Some(n) = self.meta.nodes.get(i) {
-                n.start(self).c(d!())?;
-            } else if let Some(n) = self.meta.bootstraps.get(i) {
+            if let Some(n) = self
+                .meta
+                .bootstraps
+                .get(i)
+                .or_else(|| self.meta.nodes.get(i))
+            {
                 n.start(self).c(d!())?;
             } else {
                 return Err(eg!("not exist"));
@@ -496,25 +499,11 @@ where
             ports.get_sys_abci()
         ));
 
-        #[cfg(all(target_os = "linux", feature = "unix_abstract_socket"))]
-        {
-            // Use 'unix abstract socket address', `man unix(7)` for more infomation.
-            // A '@'-prefix is necessary for tendermint(written in go) to distinguish its type
-            cfg["rpc"]["laddr"] = toml_value(format!(
-                "unix://@{}{}",
-                rand::random::<u64>(),
-                &self.meta.name
-            ));
-        }
-
-        #[cfg(any(not(target_os = "linux"), not(feature = "unix_abstract_socket")))]
-        {
-            cfg["rpc"]["laddr"] = toml_value(format!(
-                "tcp://{}:{}",
-                &self.meta.host_ip,
-                ports.get_sys_rpc()
-            ));
-        }
+        cfg["rpc"]["laddr"] = toml_value(format!(
+            "tcp://{}:{}",
+            &self.meta.host_ip,
+            ports.get_sys_rpc()
+        ));
 
         let mut arr = Array::new();
         arr.push("*");

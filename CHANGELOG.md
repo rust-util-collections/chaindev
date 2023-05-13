@@ -1,5 +1,10 @@
 # Change log
 
+#### v0.14.x
+
+- Remove the `unix_abstract_socket` feature
+  - It is not stable enough
+
 #### v0.13.x
 
 - Mark all ENVs as `protected` by default

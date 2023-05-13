@@ -569,9 +569,12 @@ where
             let mut hdrs = vec![];
             for i in ids.iter() {
                 let hdr = s.spawn(|| {
-                    if let Some(n) = self.meta.nodes.get(i) {
-                        n.start(self).c(d!())
-                    } else if let Some(n) = self.meta.bootstraps.get(i) {
+                    if let Some(n) = self
+                        .meta
+                        .bootstraps
+                        .get(i)
+                        .or_else(|| self.meta.nodes.get(i))
+                    {
                         n.start(self).c(d!())
                     } else {
                         Err(eg!("not exist"))
@@ -729,24 +732,8 @@ where
         let remote_os = remote.hosts_os().c(d!())?;
         match remote_os {
             HostOS::Linux => {
-                // Use 'unix abstract socket address', `man unix(7)` for more infomation.
-                // A '@'-prefix is necessary for tendermint(written in go) to distinguish its type
-                #[cfg(feature = "unix_abstract_socket")]
-                {
-                    cfg["rpc"]["laddr"] = toml_value(format!(
-                        "unix://@{}{}",
-                        random::<u64>(),
-                        &self.meta.name
-                    ));
-                }
-                #[cfg(not(feature = "unix_abstract_socket"))]
-                {
-                    cfg["rpc"]["laddr"] = toml_value(format!(
-                        "tcp://{}:{}",
-                        &host.addr,
-                        ports.get_sys_rpc()
-                    ));
-                }
+                cfg["rpc"]["laddr"] =
+                    toml_value(format!("tcp://{}:{}", &host.addr, ports.get_sys_rpc()));
             }
             HostOS::MacOS => {
                 cfg["rpc"]["laddr"] =
