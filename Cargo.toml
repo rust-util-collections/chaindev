@@ -1,6 +1,6 @@
 [package]
 name = "chaindev"
-version = "0.14.0"
+version = "0.14.1"
 edition = "2021"
 authors = ["hui.fan@mail.ru"]
 description = "Powerful development and testing utils for blockchain developers."
@@ -23,14 +23,13 @@ serde = { version = "1.0.148", features = ["derive"] }
 
 ruc = { version = "4.1.0", features = ["cmd","ssh"] }
 
-# vsdb = { path = "../vsdb/wrappers" }
-vsdb = { version = "0.56.0", default-features = false }
+vsdb = { version = "0.56.1", default-features = false }
 
 tendermint = { version = "0.29.1", optional = true }
 tendermint-config = { version = "0.29.1", optional = true }
 
 [features]
-default = ["tendermint_based", "vsdb_bcs_codec", "vsdb_rocks_engine"]
+default = ["tendermint_based","vsdb_rocks_engine","vsdb_bcs_codec","vsdb_compress"]
 
 substrate_based = []
 tendermint_based = ["tendermint","tendermint-config"]
@@ -41,3 +40,8 @@ vsdb_sled_engine = ["vsdb/sled_engine"]
 vsdb_bcs_codec = ["vsdb/bcs_codec"]
 vsdb_json_codec = ["vsdb/json_codec"]
 vsdb_msgpack_codec = ["vsdb/msgpack_codec"]
+
+vsdb_compress = ["vsdb/compress"]
+
+[patch.crates-io]
+# vsdb = { path = "../vsdb/wrappers" }

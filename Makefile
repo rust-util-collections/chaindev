@@ -1,4 +1,4 @@
-all: lint
+all: fmt lint
 
 lint: fmt
 	cargo clippy
