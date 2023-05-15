@@ -575,17 +575,25 @@ where
             return Err(eg!("One or more hosts already exist"));
         }
         self.meta.hosts.as_mut().append(&mut new_hosts);
-        Ok(())
+        self.write_cfg().c(d!())
     }
 
     fn kick_host(&mut self, host_addr: HostAddrRef) -> Result<()> {
+        if self.is_protected {
+            return Err(eg!(
+                "This env({}) is protected, `unprotect` it first",
+                self.meta.name
+            ));
+        }
+
         if let Some(n) = self.meta.hosts.as_ref().get(host_addr).map(|h| h.node_cnt) {
             if 0 < n {
                 return Err(eg!("Some nodes are running on this host"));
             }
             self.meta.hosts.as_mut().remove(host_addr);
         }
-        Ok(())
+
+        self.write_cfg().c(d!())
     }
 
     fn protect(&mut self) {
