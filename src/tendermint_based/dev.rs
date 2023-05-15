@@ -75,10 +75,10 @@ where
                 .and_then(|mut env| env.kick_node(*node_id).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .map(|mut env| env.protect()),
+                .and_then(|mut env| env.protect().c(d!())),
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .map(|mut env| env.unprotect()),
+                .and_then(|mut env| env.unprotect().c(d!())),
             Op::Start => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.start(None).c(d!())),
@@ -222,11 +222,10 @@ where
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
 
         if opts.force_create {
-            omit!(
-                Env::<C, P, S>::load_env_by_cfg(cfg)
-                    .c(d!())
-                    .and_then(|env| env.destroy().c(d!()))
-            );
+            if let Ok(env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
+                env.destroy().c(d!())?;
+            }
+
             omit!(fs::remove_dir_all(&home));
         }
 
@@ -314,7 +313,8 @@ where
 
             env.destroy().c(d!())?;
         }
-        fs::remove_dir_all(&*GLOBAL_BASE_DIR).c(d!())
+
+        Ok(())
     }
 
     // bootstrap nodes are kept by system for now,
@@ -357,12 +357,14 @@ where
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
-    fn protect(&mut self) {
+    fn protect(&mut self) -> Result<()> {
         self.is_protected = true;
+        self.write_cfg().c(d!())
     }
 
-    fn unprotect(&mut self) {
+    fn unprotect(&mut self) -> Result<()> {
         self.is_protected = false;
+        self.write_cfg().c(d!())
     }
 
     // Start one or all nodes

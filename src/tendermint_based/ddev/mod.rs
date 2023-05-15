@@ -88,10 +88,10 @@ where
                 .and_then(|mut env| env.kick_host(host_addr.as_str()).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .map(|mut env| env.protect()),
+                .and_then(|mut env| env.protect().c(d!())),
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .map(|mut env| env.unprotect()),
+                .and_then(|mut env| env.unprotect().c(d!())),
             Op::Start => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.start(None).c(d!())),
@@ -321,11 +321,10 @@ where
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
 
         if opts.force_create {
-            omit!(
-                Env::<C, P, S>::load_env_by_cfg(cfg)
-                    .c(d!())
-                    .and_then(|env| env.destroy().c(d!()))
-            );
+            if let Ok(env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
+                env.destroy().c(d!())?;
+            }
+
             omit!(fs::remove_dir_all(&home).c(d!()).and_then(|_| {
                 let errlist = thread::scope(|s| {
                     opts.hosts
@@ -342,6 +341,7 @@ where
                         .filter(|t| t.is_err())
                         .collect::<Vec<_>>()
                 });
+
                 check_errlist!(errlist)
             }));
         }
@@ -494,19 +494,8 @@ where
             env.destroy().c(d!())?;
             hosts.append(env.meta.hosts.as_mut());
         }
-        fs::remove_dir_all(&*GLOBAL_BASE_DIR)
-            .c(d!())
-            .and_then(|_| {
-                hosts
-                    .values()
-                    .map(|h| {
-                        let remote = Remote::from(h);
-                        let cmd = format!("rm -rf {}", &*GLOBAL_BASE_DIR);
-                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
-                    })
-                    .collect::<Result<Vec<_>>>()
-            })
-            .map(|_| ())
+
+        Ok(())
     }
 
     // bootstrap nodes are kept by system for now,
@@ -596,12 +585,14 @@ where
         self.write_cfg().c(d!())
     }
 
-    fn protect(&mut self) {
+    fn protect(&mut self) -> Result<()> {
         self.is_protected = true;
+        self.write_cfg().c(d!())
     }
 
-    fn unprotect(&mut self) {
+    fn unprotect(&mut self) -> Result<()> {
         self.is_protected = false;
+        self.write_cfg().c(d!())
     }
 
     // Start one or all nodes
