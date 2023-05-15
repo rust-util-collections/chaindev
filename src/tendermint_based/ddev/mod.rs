@@ -5,7 +5,7 @@
 mod host;
 mod remote;
 
-use host::{HostMeta, HostOS};
+use host::{HostExpression, HostExpressionRef, HostMeta, HostOS};
 use once_cell::sync::Lazy;
 use rand::random;
 use remote::Remote;
@@ -80,6 +80,12 @@ where
             Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.kick_node(*node_id).c(d!())),
+            Op::PushHost(host_expression) => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| env.push_host(host_expression.as_str()).c(d!())),
+            Op::KickHost(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| env.kick_host(host_addr.as_str()).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .map(|mut env| env.protect()),
@@ -175,6 +181,14 @@ where
                         env.nodes_collect_logs(local_base_dir.as_deref()).c(d!())
                     })
             }
+            Op::NodeCollectConfigurations { local_base_dir } => {
+                Env::<C, P, S>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|env| {
+                        env.nodes_collect_configurations(local_base_dir.as_deref())
+                            .c(d!())
+                    })
+            }
             Op::Custom(custom_op) => custom_op.exec(&self.name).c(d!()),
             Op::Nil(_) => unreachable!(),
         }
@@ -214,10 +228,10 @@ where
     pub block_itv_secs: BlockItv,
 
     #[serde(rename = "bootstrap_nodes")]
-    pub bootstraps: BTreeMap<NodeId, N>,
+    pub bootstraps: BTreeMap<NodeID, N>,
 
     #[serde(rename = "validator_or_full_nodes")]
-    pub nodes: BTreeMap<NodeId, N>,
+    pub nodes: BTreeMap<NodeID, N>,
 
     /// The contents of `genesis.json` of all nodes
     #[serde(rename = "tendermint_genesis")]
@@ -226,7 +240,7 @@ where
     pub custom_data: C,
 
     // The latest id of current nodes
-    pub(crate) next_node_id: NodeId,
+    pub(crate) next_node_id: NodeID,
 }
 
 impl<C, P> EnvMeta<C, Node<P>>
@@ -498,15 +512,22 @@ where
     // bootstrap nodes are kept by system for now,
     // so only the other nodes can be added on demand
     fn push_node(&mut self, host_addr: Option<HostAddrRef>) -> Result<()> {
+        self.push_node_data(host_addr)
+            .c(d!())
+            .and_then(|id| self.start(Some(id)).c(d!()))
+    }
+
+    fn push_node_data(&mut self, host_addr: Option<HostAddrRef>) -> Result<NodeID> {
         let id = self.next_node_id();
         let kind = Kind::Node;
         self.alloc_resources(id, kind, host_addr)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.start(Some(id)).c(d!()))
+            .map(|_| id)
     }
 
-    fn kick_node(&mut self, node_id: Option<NodeId>) -> Result<()> {
+    // The bootstrap node should not be removed
+    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -542,6 +563,31 @@ where
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
+    fn push_host(&mut self, host_expression: HostExpressionRef) -> Result<()> {
+        let mut new_hosts = host::param_parse_hosts(host_expression).c(d!())?;
+        if self
+            .meta
+            .hosts
+            .as_ref()
+            .keys()
+            .any(|addr| new_hosts.contains_key(addr.as_str()))
+        {
+            return Err(eg!("One or more hosts already exist"));
+        }
+        self.meta.hosts.as_mut().append(&mut new_hosts);
+        Ok(())
+    }
+
+    fn kick_host(&mut self, host_addr: HostAddrRef) -> Result<()> {
+        if let Some(n) = self.meta.hosts.as_ref().get(host_addr).map(|h| h.node_cnt) {
+            if 0 < n {
+                return Err(eg!("Some nodes are running on this host"));
+            }
+            self.meta.hosts.as_mut().remove(host_addr);
+        }
+        Ok(())
+    }
+
     fn protect(&mut self) {
         self.is_protected = true;
     }
@@ -551,7 +597,7 @@ where
     }
 
     // Start one or all nodes
-    fn start(&mut self, n: Option<NodeId>) -> Result<()> {
+    fn start(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .bootstraps
@@ -692,13 +738,18 @@ where
         remote::collect_logs_from_nodes(self, local_base_dir).c(d!())
     }
 
+    #[inline(always)]
+    fn nodes_collect_configurations(&self, local_base_dir: Option<&str>) -> Result<()> {
+        remote::collect_tar_from_nodes(self, &["config"], local_base_dir).c(d!())
+    }
+
     // 1. Allocate host and ports
     // 2. Change configs: ports, bootstrap address, etc.
     // 3. Write new configs of tendermint to local/remote disk
     // 4. Insert new node to the meta of env
     fn alloc_resources(
         &mut self,
-        id: NodeId,
+        id: NodeID,
         kind: Kind,
         host_addr: Option<HostAddrRef>,
     ) -> Result<()> {
@@ -731,11 +782,7 @@ where
 
         let remote_os = remote.hosts_os().c(d!())?;
         match remote_os {
-            HostOS::Linux => {
-                cfg["rpc"]["laddr"] =
-                    toml_value(format!("tcp://{}:{}", &host.addr, ports.get_sys_rpc()));
-            }
-            HostOS::MacOS => {
+            HostOS::Linux | HostOS::MacOS => {
                 cfg["rpc"]["laddr"] =
                     toml_value(format!("tcp://{}:{}", &host.addr, ports.get_sys_rpc()));
             }
@@ -879,7 +926,7 @@ where
     }
 
     // Allocate unique IDs for nodes within the scope of an env
-    fn next_node_id(&mut self) -> NodeId {
+    fn next_node_id(&mut self) -> NodeID {
         let ret = self.meta.next_node_id;
         self.meta.next_node_id += 1;
         ret
@@ -891,7 +938,7 @@ where
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     {
-        let tmp_id = NodeId::MAX;
+        let tmp_id = NodeID::MAX;
         let tmp_home = format!("{}/{}", &self.meta.home, tmp_id);
 
         let parse = |n: &Node<P>| {
@@ -970,7 +1017,7 @@ where
         .and_then(|_| fs::remove_dir_all(tmp_home).c(d!()))
     }
 
-    fn apply_genesis(&self, n: Option<NodeId>) -> Result<()> {
+    fn apply_genesis(&self, n: Option<NodeID>) -> Result<()> {
         let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .bootstraps
@@ -1156,7 +1203,7 @@ where
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub struct Node<P: NodePorts> {
-    id: NodeId,
+    id: NodeID,
     #[serde(rename = "tendermint_node_id")]
     tm_id: String,
     #[serde(rename = "node_home_dir")]
@@ -1236,6 +1283,16 @@ enum Kind {
     Bootstrap,
 }
 
+impl fmt::Display for Kind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let msg = match self {
+            Self::Bootstrap => "bootstrap",
+            Self::Node => "validator_or_full",
+        };
+        write!(f, "{}", msg)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub enum Op<A, C, P, U>
@@ -1249,7 +1306,10 @@ where
     Destroy,
     DestroyAll,
     PushNode(Option<HostAddr>),
-    KickNode(Option<NodeId>),
+    KickNode(Option<NodeID>),
+    // "ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey"
+    PushHost(HostExpression),
+    KickHost(HostAddr),
     Protect,
     Unprotect,
     Start,
@@ -1275,6 +1335,9 @@ where
         hosts: Option<Hosts>,
     },
     NodeCollectLogs {
+        local_base_dir: Option<String>,
+    },
+    NodeCollectConfigurations {
         local_base_dir: Option<String>,
     },
     Custom(U),

@@ -27,6 +27,8 @@ static DEFAULT_SSH_PRIVKEY_PATH: Lazy<Vec<PathBuf>> = Lazy::new(|| {
 // ip, domain, ...
 pub type HostAddr = String;
 pub type HostAddrRef<'a> = &'a str;
+pub type HostExpression = String;
+pub type HostExpressionRef<'a> = &'a str;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Host {
@@ -97,8 +99,14 @@ impl AsMut<HostMap> for Hosts {
     }
 }
 
-/// "ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,..."
-pub fn param_parse_hosts(hosts: &str) -> Result<HostMap> {
+/// "
+///   ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   ...,
+///   ...,
+///   ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   ...,
+/// "
+pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
     let hosts = hosts
         .trim_matches(|c| c == ' ' || c == '\t')
         .split(',')

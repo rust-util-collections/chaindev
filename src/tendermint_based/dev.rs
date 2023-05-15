@@ -130,10 +130,10 @@ where
     pub block_itv_secs: BlockItv,
 
     #[serde(rename = "bootstrap_nodes")]
-    pub bootstraps: BTreeMap<NodeId, N>,
+    pub bootstraps: BTreeMap<NodeID, N>,
 
     #[serde(rename = "validator_or_full_nodes")]
-    pub nodes: BTreeMap<NodeId, N>,
+    pub nodes: BTreeMap<NodeID, N>,
 
     /// The contents of `genesis.json` of all nodes
     #[serde(rename = "tendermint_genesis")]
@@ -142,7 +142,7 @@ where
     pub custom_data: C,
 
     // The latest id of current nodes
-    pub(crate) next_node_id: NodeId,
+    pub(crate) next_node_id: NodeID,
 }
 
 impl<C, P> EnvMeta<C, Node<P>>
@@ -328,7 +328,8 @@ where
             .and_then(|_| self.start(Some(id)).c(d!()))
     }
 
-    fn kick_node(&mut self, node_id: Option<NodeId>) -> Result<()> {
+    // The bootstrap node should not be removed
+    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -365,7 +366,7 @@ where
     }
 
     // Start one or all nodes
-    fn start(&mut self, n: Option<NodeId>) -> Result<()> {
+    fn start(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .bootstraps
@@ -468,7 +469,7 @@ where
     // 2. Change configs: ports, bootstrap address, etc.
     // 3. Insert new node to the meta of env
     // 4. Write new configs of tendermint to disk
-    fn alloc_resources(&mut self, id: NodeId, kind: Kind) -> Result<()> {
+    fn alloc_resources(&mut self, id: NodeID, kind: Kind) -> Result<()> {
         // 1.
         let ports = self.alloc_ports(&kind).c(d!())?;
 
@@ -654,7 +655,7 @@ where
     }
 
     // Allocate unique IDs for nodes within the scope of an env
-    fn next_node_id(&mut self) -> NodeId {
+    fn next_node_id(&mut self) -> NodeID {
         let ret = self.meta.next_node_id;
         self.meta.next_node_id += 1;
         ret
@@ -666,7 +667,7 @@ where
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     {
-        let tmp_id = NodeId::MAX;
+        let tmp_id = NodeID::MAX;
         let tmp_home = format!("{}/{}", &self.meta.home, tmp_id);
 
         let gen = |genesis_file: String| {
@@ -734,7 +735,7 @@ where
     }
 
     // Apply genesis to one/all nodes in the same env
-    fn apply_genesis(&mut self, n: Option<NodeId>) -> Result<()> {
+    fn apply_genesis(&mut self, n: Option<NodeID>) -> Result<()> {
         let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .bootstraps
@@ -813,7 +814,7 @@ where
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub struct Node<P: NodePorts> {
-    pub id: NodeId,
+    pub id: NodeID,
     #[serde(rename = "tendermint_node_id")]
     pub tm_id: String,
     #[serde(rename = "node_home_dir")]
@@ -913,7 +914,7 @@ where
     Destroy,
     DestroyAll,
     PushNode,
-    KickNode(Option<NodeId>),
+    KickNode(Option<NodeID>),
     Protect,
     Unprotect,
     Start,

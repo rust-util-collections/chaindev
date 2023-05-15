@@ -90,7 +90,7 @@ pub(crate) const PRESET_POWER: u32 = 1_000_000_000;
 pub(crate) const MB: i64 = 1024 * 1024;
 pub(crate) const GB: i64 = 1024 * MB;
 
-pub type NodeId = u32;
+pub type NodeID = u32;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EnvName {

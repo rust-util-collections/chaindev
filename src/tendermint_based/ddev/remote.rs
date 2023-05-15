@@ -289,6 +289,24 @@ where
     P: NodePorts,
     S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
+    collect_files_from_nodes(
+        env,
+        &["app.log", "tendermint.log", "mgmt.log"],
+        local_base_dir,
+    )
+    .c(d!())
+}
+
+pub(super) fn collect_files_from_nodes<C, P, S>(
+    env: &Env<C, P, S>,
+    files: &[&str], // file paths relative to the node home
+    local_base_dir: Option<&str>,
+) -> Result<()>
+where
+    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    P: NodePorts,
+    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+{
     let local_base_dir = if let Some(lbd) = local_base_dir {
         lbd
     } else {
@@ -301,11 +319,11 @@ where
             .values()
             .chain(env.meta.bootstraps.values())
             .flat_map(|n| {
-                ["app.log", "tendermint.log", "mgmt.log"].iter().map(|log| {
+                files.iter().map(|log| {
                     (
                         n.host.clone(),
                         format!("{}/{}", &n.home, log),
-                        format!("N{}_{}", n.id, log),
+                        format!("N{}_{}_{}", n.id, n.kind, log.replace('/', "_")),
                     )
                 })
             })
@@ -315,6 +333,59 @@ where
                     let local_path =
                         format!("{}/{}_{}", local_base_dir, &host.addr, remote_file);
                     remote.get_file(remote_path, local_path).c(d!())
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|h| h.join())
+            .filter(|t| t.is_err())
+            .collect::<Vec<_>>()
+    });
+
+    check_errlist!(errlist)
+}
+
+pub(super) fn collect_tar_from_nodes<C, P, S>(
+    env: &Env<C, P, S>,
+    paths: &[&str], // paths relative to the node home
+    local_base_dir: Option<&str>,
+) -> Result<()>
+where
+    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    P: NodePorts,
+    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+{
+    let local_base_dir = if let Some(lbd) = local_base_dir {
+        lbd
+    } else {
+        "/tmp"
+    };
+
+    let errlist = thread::scope(|s| {
+        env.meta
+            .bootstraps
+            .values()
+            .chain(env.meta.nodes.values())
+            .flat_map(|n| {
+                paths.iter().map(|path| {
+                    (
+                        n.host.clone(),
+                        format!("{}/{}", &n.home, path),
+                        format!("N{}_{}_{}.tar", n.id, n.kind, path.replace('/', "_")),
+                    )
+                })
+            })
+            .map(|(host, remote_path, tar_name)| {
+                s.spawn(move || {
+                    let remote = Remote::from(&host);
+                    let tarcmd =
+                        format!("cd /tmp && tar -cf {} {}", &tar_name, &remote_path);
+                    remote.exec_cmd(&tarcmd).c(d!()).and_then(|_| {
+                        let remote_tar_path = format!("/tmp/{}", tar_name);
+                        let local_path =
+                            format!("{}/{}_{}", local_base_dir, &host.addr, &tar_name);
+                        remote.get_file(remote_tar_path, local_path).c(d!())
+                    })
                 })
             })
             .collect::<Vec<_>>()
