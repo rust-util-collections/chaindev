@@ -83,10 +83,10 @@ where
                 .c(d!())
                 .and_then(|mut env| env.start(None).c(d!())),
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
-            Op::Stop => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Stop(force) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.stop().c(d!())),
-            Op::StopAll => Env::<C, P, S>::stop_all().c(d!()),
+                .and_then(|env| env.stop(*force).c(d!())),
+            Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
             }),
@@ -284,8 +284,8 @@ where
             ));
         }
 
-        info_omit!(self.stop());
-        sleep_ms!(10);
+        info_omit!(self.stop(true));
+        sleep_ms!(100);
 
         for n in self
             .meta
@@ -353,7 +353,7 @@ where
             .nodes
             .remove(&id)
             .c(d!("Node ID does not exist?"))
-            .and_then(|n| n.stop().c(d!()).and_then(|_| n.clean().c(d!())))
+            .and_then(|n| n.stop(true).c(d!()).and_then(|_| n.clean().c(d!())))
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
@@ -412,23 +412,23 @@ where
 
     // - Stop all processes
     // - Release all occupied ports
-    fn stop(&self) -> Result<()> {
+    fn stop(&self, force: bool) -> Result<()> {
         self.meta
-            .nodes
+            .bootstraps
             .values()
-            .chain(self.meta.bootstraps.values())
-            .map(|n| n.stop().c(d!()))
+            .chain(self.meta.nodes.values())
+            .map(|n| n.stop(force).c(d!()))
             .collect::<Result<Vec<_>>>()
             .map(|_| ())
     }
 
     // Stop all existing ENVs
-    fn stop_all() -> Result<()> {
+    fn stop_all(force: bool) -> Result<()> {
         for env in Self::get_env_list().c(d!())?.iter() {
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .stop()
+                .stop(force)
                 .c(d!())?;
         }
         Ok(())
@@ -831,7 +831,10 @@ impl<P: NodePorts> Node<P> {
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        self.stop().c(d!())?;
+        if self.is_running().c(d!())? {
+            return Err(eg!("One or more nodes of this ENV is running ..."));
+        }
+
         match unsafe { unistd::fork() } {
             Ok(ForkResult::Child) => {
                 let (tmvars, tmopts) =
@@ -854,7 +857,19 @@ impl<P: NodePorts> Node<P> {
         }
     }
 
-    fn stop(&self) -> Result<()> {
+    fn is_running(&self) -> Result<bool> {
+        let cmd = format!(
+            "ps ax -o pid,args | grep '{}' | grep -vc 'grep'",
+            &self.home
+        );
+        cmd::exec_output(&cmd)
+            .c(d!())?
+            .parse::<u64>()
+            .c(d!())
+            .map(|n| alt!(0 == n, false, true))
+    }
+
+    fn stop(&self, force: bool) -> Result<()> {
         let cmd = format!(
             "for i in \
                 $(ps ax -o pid,args \
@@ -863,7 +878,8 @@ impl<P: NodePorts> Node<P> {
                     | grep -Eo '^ *[0-9]+' \
                     | sed 's/ //g' \
                 ); \
-             do kill -9 $i; done",
+             do kill {} $i; done",
+            alt!(force, "-9", ""),
             &self.home
         );
         let outputs = cmd::exec_output(&cmd).c(d!())?;
@@ -921,8 +937,8 @@ where
     Unprotect,
     Start,
     StartAll,
-    Stop,
-    StopAll,
+    Stop(bool),
+    StopAll(bool),
     Show,
     ShowAll,
     List,
