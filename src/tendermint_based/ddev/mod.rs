@@ -1219,7 +1219,7 @@ impl<P: NodePorts> Node<P> {
         S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         if self.is_running().c(d!())? {
-            return Err(eg!("One or more nodes of this ENV is running ..."));
+            return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
         }
 
         let (tmvars, tmopts) = env.node_opts_generator.tendermint_opts(self, &env.meta);
@@ -1239,15 +1239,19 @@ impl<P: NodePorts> Node<P> {
 
     fn is_running(&self) -> Result<bool> {
         let cmd = format!(
-            "ps ax -o pid,args | grep '{}' | grep -vc 'grep'",
+            "ps ax -o pid,args | grep '{}' | grep -v 'grep' | wc -l",
             &self.home
         );
+
+        // Use the `wc -l` instead of the `grep -vc 'grep'`
+        // to avoid a non-zero exit code
         Remote::from(&self.host)
             .exec_cmd(&cmd)
             .c(d!())?
+            .trim()
             .parse::<u64>()
             .c(d!())
-            .map(|n| alt!(0 == n, false, true))
+            .map(|n| alt!(0 < n, true, false))
     }
 
     fn stop(&self, force: bool) -> Result<()> {
@@ -1260,8 +1264,8 @@ impl<P: NodePorts> Node<P> {
                     | sed 's/ //g' \
                 ); \
              do kill {} $i; done",
+            &self.home,
             alt!(force, "-9", ""),
-            &self.home
         );
         let outputs = Remote::from(&self.host).exec_cmd(&cmd).c(d!())?;
         let log = format!("{}\n{}", &cmd, outputs.as_str());
