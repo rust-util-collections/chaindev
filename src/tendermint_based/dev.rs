@@ -258,7 +258,7 @@ where
         macro_rules! add_initial_nodes {
             ($kind: tt) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, Kind::$kind).c(d!())?;
+                env.alloc_resources(id, NodeKind::$kind).c(d!())?;
             }};
         }
 
@@ -321,7 +321,7 @@ where
     // so only the other nodes can be added on demand
     fn push_node(&mut self) -> Result<()> {
         let id = self.next_node_id();
-        let kind = Kind::Node;
+        let kind = NodeKind::Node;
         self.alloc_resources(id, kind)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
@@ -471,7 +471,7 @@ where
     // 2. Change configs: ports, bootstrap address, etc.
     // 3. Insert new node to the meta of env
     // 4. Write new configs of tendermint to disk
-    fn alloc_resources(&mut self, id: NodeID, kind: Kind) -> Result<()> {
+    fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
         // 1.
         let ports = self.alloc_ports(&kind).c(d!())?;
 
@@ -481,8 +481,8 @@ where
 
         let cfg_path = format!("{}/config/config.toml", &home);
         let role_mark = match kind {
-            Kind::Node => "node",
-            Kind::Bootstrap => "bootstrap",
+            NodeKind::Node => "node",
+            NodeKind::Bootstrap => "bootstrap",
         };
         let mut cfg = fs::read_to_string(&cfg_path)
             .c(d!())
@@ -552,12 +552,12 @@ where
         cfg["moniker"] = toml_value(format!("{}-{}", &self.meta.name, id));
 
         match kind {
-            Kind::Node => {
+            NodeKind::Node => {
                 cfg["p2p"]["max_num_inbound_peers"] = toml_value(40);
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
                 cfg["tx_index"]["indexer"] = toml_value("null");
             }
-            Kind::Bootstrap => {
+            NodeKind::Bootstrap => {
                 cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
                 cfg["tx_index"]["indexer"] = toml_value("kv");
@@ -581,8 +581,8 @@ where
         };
 
         match kind {
-            Kind::Node => self.meta.nodes.insert(id, node),
-            Kind::Bootstrap => self.meta.bootstraps.insert(id, node),
+            NodeKind::Node => self.meta.nodes.insert(id, node),
+            NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
         };
 
         // 4.
@@ -590,11 +590,11 @@ where
     }
 
     // Global alloctor for ports
-    fn alloc_ports(&self, node_kind: &Kind) -> Result<P> {
+    fn alloc_ports(&self, node_kind: &NodeKind) -> Result<P> {
         let reserved_ports = P::reserved();
 
         let mut res = vec![];
-        if matches!(node_kind, Kind::Bootstrap)
+        if matches!(node_kind, NodeKind::Bootstrap)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved_ports
                 .iter()
@@ -821,7 +821,7 @@ pub struct Node<P: NodePorts> {
     pub tm_id: String,
     #[serde(rename = "node_home_dir")]
     pub home: String,
-    pub kind: Kind,
+    pub kind: NodeKind,
     pub ports: P,
 }
 
@@ -917,7 +917,7 @@ impl<P: NodePorts> Node<P> {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-pub enum Kind {
+pub enum NodeKind {
     #[serde(rename = "ValidatorOrFull")]
     Node,
     Bootstrap,

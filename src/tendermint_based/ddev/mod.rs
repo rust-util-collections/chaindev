@@ -410,7 +410,7 @@ where
         macro_rules! add_initial_nodes {
             ($kind: tt) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, Kind::$kind, None).c(d!())?;
+                env.alloc_resources(id, NodeKind::$kind, None).c(d!())?;
             }};
         }
 
@@ -508,7 +508,7 @@ where
 
     fn push_node_data(&mut self, host_addr: Option<HostAddrRef>) -> Result<NodeID> {
         let id = self.next_node_id();
-        let kind = Kind::Node;
+        let kind = NodeKind::Node;
         self.alloc_resources(id, kind, host_addr)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
@@ -749,7 +749,7 @@ where
     fn alloc_resources(
         &mut self,
         id: NodeID,
-        kind: Kind,
+        kind: NodeKind,
         host_addr: Option<HostAddrRef>,
     ) -> Result<()> {
         // 1.
@@ -762,8 +762,8 @@ where
 
         let cfgfile = format!("{}/config/config.toml", &home);
         let role_mark = match kind {
-            Kind::Node => "node",
-            Kind::Bootstrap => "bootstrap",
+            NodeKind::Node => "node",
+            NodeKind::Bootstrap => "bootstrap",
         };
 
         let cmd = format!(
@@ -829,12 +829,12 @@ where
         cfg["moniker"] = toml_value(format!("{}-{}", &self.meta.name, id));
 
         match kind {
-            Kind::Node => {
+            NodeKind::Node => {
                 cfg["p2p"]["max_num_inbound_peers"] = toml_value(40);
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
                 cfg["tx_index"]["indexer"] = toml_value("null");
             }
-            Kind::Bootstrap => {
+            NodeKind::Bootstrap => {
                 cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
                 cfg["tx_index"]["indexer"] = toml_value("kv");
@@ -868,8 +868,8 @@ where
         };
 
         match kind {
-            Kind::Node => self.meta.nodes.insert(id, node),
-            Kind::Bootstrap => self.meta.bootstraps.insert(id, node),
+            NodeKind::Node => self.meta.nodes.insert(id, node),
+            NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
         };
 
         Ok(())
@@ -1107,7 +1107,7 @@ where
     // Alloc <host,ports> for a new node
     fn alloc_hosts_ports(
         &mut self,
-        node_kind: &Kind,
+        node_kind: &NodeKind,
         host_addr: Option<HostAddrRef>,
     ) -> Result<(HostMeta, P)> {
         let host = self.alloc_host(node_kind, host_addr).c(d!())?;
@@ -1117,7 +1117,7 @@ where
 
     fn alloc_host(
         &mut self,
-        node_kind: &Kind,
+        node_kind: &NodeKind,
         host_addr: Option<HostAddrRef>,
     ) -> Result<HostMeta> {
         if let Some(addr) = host_addr {
@@ -1139,7 +1139,7 @@ where
             .max_by(|a, b| a.1.cmp(&b.1))
             .c(d!("BUG"))?;
 
-        let h = if matches!(node_kind, Kind::Bootstrap) {
+        let h = if matches!(node_kind, NodeKind::Bootstrap) {
             max_host
         } else {
             let mut seq = self
@@ -1158,7 +1158,7 @@ where
         Ok(h)
     }
 
-    fn alloc_ports(&self, node_kind: &Kind, host: &HostMeta) -> Result<P> {
+    fn alloc_ports(&self, node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
         let reserved_ports = P::reserved();
         let reserved = reserved_ports
             .iter()
@@ -1170,7 +1170,7 @@ where
         let port_is_free = |p: &u16| !occupied.contains(p);
 
         let mut res = vec![];
-        if matches!(node_kind, Kind::Bootstrap)
+        if matches!(node_kind, NodeKind::Bootstrap)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved.iter().all(|hp| !PC.contains(hp))
             && reserved_ports.iter().all(|p| port_is_free(p))
@@ -1207,7 +1207,7 @@ pub struct Node<P: NodePorts> {
     tm_id: String,
     #[serde(rename = "node_home_dir")]
     pub home: String,
-    kind: Kind,
+    pub kind: NodeKind,
     pub host: HostMeta,
     pub ports: P,
 }
@@ -1296,13 +1296,13 @@ impl<P: NodePorts> Node<P> {
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
-enum Kind {
+pub enum NodeKind {
     #[serde(rename = "ValidatorOrFull")]
     Node,
     Bootstrap,
 }
 
-impl fmt::Display for Kind {
+impl fmt::Display for NodeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
             Self::Bootstrap => "bootstrap",
