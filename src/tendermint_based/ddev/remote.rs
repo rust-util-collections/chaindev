@@ -8,7 +8,7 @@ use crate::{
 use ruc::{ssh, *};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 use std::{fmt, fs, sync::Mutex, thread};
@@ -63,6 +63,30 @@ impl<'a> Remote<'a> {
             .map_err(|e| eg!(e))
     }
 
+    // return: (the local path of tgz, the name of tgz)
+    pub(super) fn get_tgz_from_host(
+        &self,
+        absolute_path: &str,
+        local_base_dir: Option<&str>,
+    ) -> Result<String> {
+        let local_base_dir = if let Some(lbd) = local_base_dir {
+            lbd
+        } else {
+            "/tmp"
+        };
+
+        let tgz_name = generate_name_from_path(absolute_path);
+        let tgzcmd = format!("cd /tmp && tar -zcf {} {}", &tgz_name, absolute_path);
+
+        self.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
+            let remote_tgz_path = format!("/tmp/{}", &tgz_name);
+            let local_path = format!("{}/{}", local_base_dir, tgz_name);
+            self.get_file(remote_tgz_path, &local_path)
+                .c(d!())
+                .map(|_| local_path)
+        })
+    }
+
     pub(super) fn write_file<P: AsRef<Path>>(
         &self,
         remote_path: P,
@@ -81,6 +105,21 @@ impl<'a> Remote<'a> {
         self.inner
             .put_file(local_path, remote_path)
             .map_err(|e| eg!(e))
+    }
+
+    pub(super) fn file_is_dir<P: AsRef<Path>>(&self, remote_path: P) -> Result<bool> {
+        self.inner.file_stat(remote_path).map(|s| s.is_dir())
+    }
+
+    // pub(super) fn file_is_file<P: AsRef<Path>>(&self, remote_path: P) -> Result<bool> {
+    //     self.inner.file_stat(remote_path).map(|s| s.is_file())
+    // }
+
+    pub(super) fn file_accessible<P: AsRef<Path>>(
+        &self,
+        remote_path: P,
+    ) -> Result<bool> {
+        self.inner.file_stat(remote_path).map(|_| true)
     }
 
     pub(super) fn get_occupied_ports(&self) -> Result<BTreeSet<u16>> {
@@ -307,93 +346,115 @@ where
     P: NodePorts,
     S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
+    let mut path_map = BTreeMap::new();
+
     let local_base_dir = if let Some(lbd) = local_base_dir {
         lbd
     } else {
         "/tmp"
     };
 
-    let errlist = thread::scope(|s| {
-        env.meta
-            .nodes
-            .values()
-            .chain(env.meta.bootstraps.values())
-            .flat_map(|n| {
-                files.iter().map(|log| {
-                    (
-                        n.host.clone(),
-                        format!("{}/{}", &n.home, log),
-                        format!("N{}_{}_{}", n.id, n.kind, log.replace('/', "_")),
-                    )
-                })
+    let errlist = env
+        .meta
+        .nodes
+        .values()
+        .chain(env.meta.bootstraps.values())
+        .flat_map(|n| {
+            files.iter().map(|f| {
+                (
+                    n.host.clone(),
+                    *f,
+                    format!("{}/{}", &n.home, f),
+                    format!("N{}_{}_{}", n.id, n.kind, f.replace('/', "_")),
+                )
             })
-            .map(|(host, remote_path, remote_file)| {
-                s.spawn(move || {
-                    let remote = Remote::from(&host);
-                    let local_path =
-                        format!("{}/{}_{}", local_base_dir, &host.addr, remote_file);
-                    remote.get_file(remote_path, local_path).c(d!())
-                })
+        })
+        .map(|(host, relative_path, remote_path, remote_file)| {
+            let remote = Remote::from(&host);
+            let local_path =
+                format!("{}/{}_{}", local_base_dir, &host.addr, remote_file);
+            remote.get_file(remote_path, &local_path).c(d!()).map(|_| {
+                path_map
+                    .entry(relative_path)
+                    .or_insert_with(Vec::new)
+                    .push(local_path);
             })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .flat_map(|h| h.join())
-            .filter(|t| t.is_err())
-            .collect::<Vec<_>>()
+        })
+        .filter(|t| t.is_err())
+        .collect::<Vec<_>>();
+
+    check_errlist!(@errlist);
+
+    path_map.iter().for_each(|(f, paths)| {
+        println!("Files of the {} are stored at {}", f, paths.join(","));
     });
 
-    check_errlist!(errlist)
+    Ok(())
 }
 
-pub(super) fn collect_tgz_from_nodes<C, P, S>(
-    env: &Env<C, P, S>,
-    paths: &[&str], // paths relative to the node home
-    local_base_dir: Option<&str>,
+pub(super) fn collect_tgz_from_nodes<'a, C, P, S>(
+    env: &'a Env<C, P, S>,
+    paths: &'a [&'a str], // paths relative to the node home
+    local_base_dir: Option<&'a str>,
 ) -> Result<()>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'x> Deserialize<'x>,
     P: NodePorts,
     S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
+    let mut path_map = BTreeMap::new();
+
     let local_base_dir = if let Some(lbd) = local_base_dir {
         lbd
     } else {
         "/tmp"
     };
 
-    let errlist = thread::scope(|s| {
-        env.meta
-            .bootstraps
-            .values()
-            .chain(env.meta.nodes.values())
-            .flat_map(|n| {
-                paths.iter().map(|path| {
-                    (
-                        n.host.clone(),
-                        format!("{}/{}", &n.home, path),
-                        format!("N{}_{}_{}.tgz", n.id, n.kind, path.replace('/', "_")),
-                    )
-                })
+    let errlist = env
+        .meta
+        .bootstraps
+        .values()
+        .chain(env.meta.nodes.values())
+        .flat_map(|n| {
+            paths.iter().map(|path| {
+                (
+                    n.host.clone(),
+                    *path,
+                    format!("{}/{}", &n.home, path),
+                    format!("N{}_{}_{}.tgz", n.id, n.kind, path.replace('/', "_")),
+                )
             })
-            .map(|(host, remote_path, tgz_name)| {
-                s.spawn(move || {
-                    let remote = Remote::from(&host);
-                    let tgzcmd =
-                        format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
-                    remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
-                        let remote_tgz_path = format!("/tmp/{}", tgz_name);
-                        let local_path =
-                            format!("{}/{}_{}", local_base_dir, &host.addr, &tgz_name);
-                        remote.get_file(remote_tgz_path, local_path).c(d!())
+        })
+        .map(|(host, relative_path, remote_path, tgz_name)| {
+            let remote = Remote::from(&host);
+            let tgzcmd = format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
+            remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
+                let remote_tgz_path = format!("/tmp/{}", tgz_name);
+                let local_path =
+                    format!("{}/{}_{}", local_base_dir, &host.addr, &tgz_name);
+                remote
+                    .get_file(remote_tgz_path, &local_path)
+                    .c(d!())
+                    .map(|_| {
+                        path_map
+                            .entry(relative_path)
+                            .or_insert_with(Vec::new)
+                            .push(local_path);
                     })
-                })
             })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .flat_map(|h| h.join())
-            .filter(|t| t.is_err())
-            .collect::<Vec<_>>()
+        })
+        .filter(|t| t.is_err())
+        .collect::<Vec<_>>();
+
+    check_errlist!(@errlist);
+
+    path_map.iter().for_each(|(f, paths)| {
+        println!("Files of the {} are stored at {}", f, paths.join(","));
     });
 
-    check_errlist!(errlist)
+    Ok(())
+}
+
+pub(super) fn generate_name_from_path(path: &str) -> String {
+    path.replace('/', "_")
 }

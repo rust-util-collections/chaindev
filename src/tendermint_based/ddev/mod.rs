@@ -77,15 +77,22 @@ where
             Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_node(host_addr.as_deref()).c(d!())),
+            Op::MigrateNode((node_id, host_addr)) => {
+                Env::<C, P, S>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|mut env| {
+                        env.migrate_node(*node_id, host_addr.as_deref()).c(d!())
+                    })
+            }
             Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.kick_node(*node_id).c(d!())),
             Op::PushHost(host_expression) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_host(host_expression.as_str()).c(d!())),
-            Op::KickHost(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickHost((host_addr, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_host(host_addr.as_str()).c(d!())),
+                .and_then(|mut env| env.kick_host(host_addr.as_str(), *force).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
@@ -515,6 +522,59 @@ where
             .map(|_| id)
     }
 
+    // Migrate the target node to another host,
+    // NOTE: the node ID will be reallocated
+    fn migrate_node(
+        &mut self,
+        node_id: NodeID,
+        new_host_addr: Option<HostAddrRef>,
+    ) -> Result<()> {
+        let (node_id, host_addr) = self
+            .meta
+            .nodes
+            .get(&node_id)
+            .c(d!("The target node does not exist"))
+            .map(|n| (n.id, n.host.addr.clone()))?;
+
+        let new_host_addr = if let Some(addr) = new_host_addr {
+            addr.to_owned()
+        } else {
+            let mut seq = self
+                .meta
+                .hosts
+                .as_ref()
+                .values()
+                .map(|h| (h.meta.clone(), h.weight))
+                .max_by(|a, b| a.1.cmp(&b.1))
+                .c(d!("BUG"))
+                .map(|(_, max_weight)| {
+                    self.meta
+                        .hosts
+                        .as_ref()
+                        .values()
+                        .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
+                        .collect::<Vec<_>>()
+                })?;
+            seq.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+            seq.into_iter()
+                .find(|h| h.0.addr != host_addr)
+                .c(d!())
+                .map(|h| h.0)?
+                .addr
+        };
+
+        let new_node_id = self.push_node_data(Some(&new_host_addr)).c(d!())?;
+        let new_base = self.meta.nodes.get(&new_node_id).c(d!("BUG"))?;
+
+        self.meta
+            .nodes
+            .get(&node_id)
+            .c(d!("BUG"))
+            .and_then(|node| node.migrate(new_base).c(d!()))?;
+
+        self.kick_node(Some(node_id)).c(d!())
+    }
+
     // The bootstrap node should not be removed
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
@@ -567,7 +627,7 @@ where
         self.write_cfg().c(d!())
     }
 
-    fn kick_host(&mut self, host_addr: HostAddrRef) -> Result<()> {
+    fn kick_host(&mut self, host_addr: HostAddrRef, force: bool) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -575,13 +635,29 @@ where
             ));
         }
 
-        if let Some(n) = self.meta.hosts.as_ref().get(host_addr).map(|h| h.node_cnt) {
+        if force {
+            let nodes_to_migrate = self
+                .meta
+                .nodes
+                .values()
+                .filter(|n| n.host.addr == host_addr)
+                .map(|n| n.id)
+                .collect::<Vec<_>>();
+            for id in nodes_to_migrate.into_iter() {
+                self.migrate_node(id, None).c(d!())?;
+            }
+        } else if let Some(n) =
+            self.meta.hosts.as_ref().get(host_addr).map(|h| h.node_cnt)
+        {
             if 0 < n {
                 return Err(eg!("Some nodes are running on this host"));
             }
-            self.meta.hosts.as_mut().remove(host_addr);
+        } else {
+            // The target host does not exist
+            return Ok(());
         }
 
+        self.meta.hosts.as_mut().remove(host_addr);
         self.write_cfg().c(d!())
     }
 
@@ -1304,14 +1380,44 @@ impl<P: NodePorts> Node<P> {
             .map(|_| ())
     }
 
-    // // Migrate this node to another host
-    // fn migrate(&self, host: &HostMeta) -> Result<()> {
-    //     if self.host.addr == host.addr {
-    //         return Ok(());
-    //     }
+    // Migrate this node to another host,
+    // NOTE: the node ID has been changed
+    fn migrate(&self, new_base: &Node<P>) -> Result<()> {
+        if self.host.addr == new_base.host.addr {
+            return Err(eg!("The host where the two nodes are located is the same"));
+        }
 
-    //     Ok(())
-    // }
+        let remote_from = Remote::from(&self.host);
+        let remote_to = Remote::from(&new_base.host);
+
+        let source_cfg_path = format!("{}/config", &self.home);
+        let target_cfg_path = format!("{}/config", &new_base.home);
+
+        if !remote_from.file_is_dir(&source_cfg_path).c(d!())? {
+            return Err(eg!("The source cfg path is invalid"));
+        }
+
+        if !remote_to.file_accessible(&new_base.home).c(d!())? {
+            return Err(eg!("The new base has not been built"));
+        }
+
+        self.stop(false).c(d!())?;
+
+        let local_cfg_copy = remote_from
+            .get_tgz_from_host(&source_cfg_path, Some("/tmp"))
+            .c(d!())?;
+        let remote_tgz_path = &local_cfg_copy;
+        remote_to
+            .put_file(&local_cfg_copy, remote_tgz_path)
+            .c(d!())
+            .and_then(|_| {
+                let cmd = format!(
+                    "rm -rf {0} /tmp/{1} && cd /tmp && tar -xf {2} && mv /tmp/{1} {0}",
+                    target_cfg_path, source_cfg_path, remote_tgz_path
+                );
+                remote_to.exec_cmd(&cmd).c(d!()).map(|_| ())
+            })
+    }
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -1344,10 +1450,11 @@ where
     Destroy,
     DestroyAll,
     PushNode(Option<HostAddr>),
+    MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
     // "ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey"
     PushHost(HostExpression),
-    KickHost(HostAddr),
+    KickHost((HostAddr, bool)),
     Protect,
     Unprotect,
     Start(Option<NodeID>),
