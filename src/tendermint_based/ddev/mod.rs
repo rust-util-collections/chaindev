@@ -508,15 +508,18 @@ where
     // bootstrap nodes are kept by system for now,
     // so only the other nodes can be added on demand
     fn push_node(&mut self, host_addr: Option<HostAddrRef>) -> Result<()> {
-        self.push_node_data(host_addr)
+        self.push_node_data(NodeKind::Node, host_addr)
             .c(d!())
             .and_then(|id| self.start(Some(id)).c(d!()))
     }
 
-    fn push_node_data(&mut self, host_addr: Option<HostAddrRef>) -> Result<NodeID> {
+    fn push_node_data(
+        &mut self,
+        node_kind: NodeKind,
+        host_addr: Option<HostAddrRef>,
+    ) -> Result<NodeID> {
         let id = self.next_node_id();
-        let kind = NodeKind::Node;
-        self.alloc_resources(id, kind, host_addr)
+        self.alloc_resources(id, node_kind, host_addr)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
             .map(|_| id)
@@ -529,12 +532,13 @@ where
         node_id: NodeID,
         new_host_addr: Option<HostAddrRef>,
     ) -> Result<()> {
-        let (node_id, host_addr) = self
+        let (node_id, node_kind, host_addr) = self
             .meta
-            .nodes
+            .bootstraps
             .get(&node_id)
+            .or_else(|| self.meta.nodes.get(&node_id))
             .c(d!("The target node does not exist"))
-            .map(|n| (n.id, n.host.addr.clone()))?;
+            .map(|n| (n.id, n.kind, n.host.addr.clone()))?;
 
         let new_host_addr = if let Some(addr) = new_host_addr {
             addr.to_owned()
@@ -563,12 +567,20 @@ where
                 .addr
         };
 
-        let new_node_id = self.push_node_data(Some(&new_host_addr)).c(d!())?;
-        let new_base = self.meta.nodes.get(&new_node_id).c(d!("BUG"))?;
+        let new_node_id = self
+            .push_node_data(node_kind, Some(&new_host_addr))
+            .c(d!())?;
+        let new_base = self
+            .meta
+            .bootstraps
+            .get(&new_node_id)
+            .or_else(|| self.meta.nodes.get(&new_node_id))
+            .c(d!("BUG"))?;
 
         self.meta
-            .nodes
+            .bootstraps
             .get(&node_id)
+            .or_else(|| self.meta.nodes.get(&node_id))
             .c(d!("BUG"))
             .and_then(|node| node.migrate(new_base).c(d!()))?;
 
@@ -588,17 +600,18 @@ where
             id
         } else {
             self.meta
-                .nodes
+                .bootstraps
                 .keys()
-                .rev()
+                .chain(self.meta.nodes.keys())
                 .copied()
-                .next()
+                .next_back()
                 .c(d!("no node found"))?
         };
 
         self.meta
             .nodes
             .remove(&id)
+            .or_else(|| self.meta.bootstraps.remove(&id))
             .c(d!("Node ID does not exist?"))
             .and_then(|n| {
                 self.meta
@@ -638,8 +651,9 @@ where
         if force {
             let nodes_to_migrate = self
                 .meta
-                .nodes
+                .bootstraps
                 .values()
+                .chain(self.meta.nodes.values())
                 .filter(|n| n.host.addr == host_addr)
                 .map(|n| n.id)
                 .collect::<Vec<_>>();
