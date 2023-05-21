@@ -79,13 +79,13 @@ where
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Start(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.start(None).c(d!())),
+                .and_then(|mut env| env.start(*node_id).c(d!())),
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
-            Op::Stop(force) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.stop(*force).c(d!())),
+                .and_then(|env| env.stop(*node_id, *force).c(d!())),
             Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
@@ -284,7 +284,7 @@ where
             ));
         }
 
-        info_omit!(self.stop(true));
+        info_omit!(self.stop(None, true));
         sleep_ms!(100);
 
         for n in self
@@ -412,11 +412,21 @@ where
 
     // - Stop all processes
     // - Release all occupied ports
-    fn stop(&self, force: bool) -> Result<()> {
-        self.meta
+    fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
+        let mut nodes = self
+            .meta
             .bootstraps
             .values()
-            .chain(self.meta.nodes.values())
+            .chain(self.meta.nodes.values());
+
+        let nodes = if let Some(id) = n {
+            vec![nodes.find(|n| n.id == id).c(d!())?]
+        } else {
+            nodes.collect::<Vec<_>>()
+        };
+
+        nodes
+            .into_iter()
             .map(|n| n.stop(force).c(d!()))
             .collect::<Result<Vec<_>>>()
             .map(|_| ())
@@ -428,7 +438,7 @@ where
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .stop(force)
+                .stop(None, force)
                 .c(d!())?;
         }
         Ok(())
@@ -939,9 +949,9 @@ where
     KickNode(Option<NodeID>),
     Protect,
     Unprotect,
-    Start,
+    Start(Option<NodeID>),
     StartAll,
-    Stop(bool),
+    Stop((Option<NodeID>, bool)),
     StopAll(bool),
     Show,
     ShowAll,

@@ -92,13 +92,13 @@ where
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Start(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.start(None).c(d!())),
+                .and_then(|mut env| env.start(*node_id).c(d!())),
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
-            Op::Stop(force) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.stop(*force).c(d!())),
+                .and_then(|env| env.stop(*node_id, *force).c(d!())),
             Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
@@ -436,7 +436,7 @@ where
             ));
         }
 
-        info_omit!(self.stop(true));
+        info_omit!(self.stop(None, true));
         sleep_ms!(100);
 
         let errlist = thread::scope(|s| {
@@ -650,12 +650,22 @@ where
 
     // - Stop all processes
     // - Release all occupied ports
-    fn stop(&self, force: bool) -> Result<()> {
+    fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
+        let mut nodes = self
+            .meta
+            .bootstraps
+            .values()
+            .chain(self.meta.nodes.values());
+
+        let nodes = if let Some(id) = n {
+            vec![nodes.find(|n| n.id == id).c(d!())?]
+        } else {
+            nodes.collect::<Vec<_>>()
+        };
+
         let errlist = thread::scope(|s| {
-            self.meta
-                .bootstraps
-                .values()
-                .chain(self.meta.nodes.values())
+            nodes
+                .into_iter()
                 .map(|n| s.spawn(|| info!(n.stop(force), &n.host.addr)))
                 .collect::<Vec<_>>()
                 .into_iter()
@@ -673,7 +683,7 @@ where
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .stop(force)
+                .stop(None, force)
                 .c(d!())?;
         }
         Ok(())
@@ -739,7 +749,7 @@ where
 
     #[inline(always)]
     fn nodes_collect_configurations(&self, local_base_dir: Option<&str>) -> Result<()> {
-        remote::collect_tar_from_nodes(self, &["config"], local_base_dir).c(d!())
+        remote::collect_tgz_from_nodes(self, &["config"], local_base_dir).c(d!())
     }
 
     // 1. Allocate host and ports
@@ -1293,6 +1303,15 @@ impl<P: NodePorts> Node<P> {
             .c(d!())
             .map(|_| ())
     }
+
+    // // Migrate this node to another host
+    // fn migrate(&self, host: &HostMeta) -> Result<()> {
+    //     if self.host.addr == host.addr {
+    //         return Ok(());
+    //     }
+
+    //     Ok(())
+    // }
 }
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -1331,9 +1350,9 @@ where
     KickHost(HostAddr),
     Protect,
     Unprotect,
-    Start,
+    Start(Option<NodeID>),
     StartAll,
-    Stop(bool),
+    Stop((Option<NodeID>, bool)),
     StopAll(bool),
     Show,
     ShowAll,

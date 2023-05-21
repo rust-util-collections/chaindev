@@ -345,7 +345,7 @@ where
     check_errlist!(errlist)
 }
 
-pub(super) fn collect_tar_from_nodes<C, P, S>(
+pub(super) fn collect_tgz_from_nodes<C, P, S>(
     env: &Env<C, P, S>,
     paths: &[&str], // paths relative to the node home
     local_base_dir: Option<&str>,
@@ -371,20 +371,20 @@ where
                     (
                         n.host.clone(),
                         format!("{}/{}", &n.home, path),
-                        format!("N{}_{}_{}.tar", n.id, n.kind, path.replace('/', "_")),
+                        format!("N{}_{}_{}.tgz", n.id, n.kind, path.replace('/', "_")),
                     )
                 })
             })
-            .map(|(host, remote_path, tar_name)| {
+            .map(|(host, remote_path, tgz_name)| {
                 s.spawn(move || {
                     let remote = Remote::from(&host);
-                    let tarcmd =
-                        format!("cd /tmp && tar -cf {} {}", &tar_name, &remote_path);
-                    remote.exec_cmd(&tarcmd).c(d!()).and_then(|_| {
-                        let remote_tar_path = format!("/tmp/{}", tar_name);
+                    let tgzcmd =
+                        format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
+                    remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
+                        let remote_tgz_path = format!("/tmp/{}", tgz_name);
                         let local_path =
-                            format!("{}/{}_{}", local_base_dir, &host.addr, &tar_name);
-                        remote.get_file(remote_tar_path, local_path).c(d!())
+                            format!("{}/{}_{}", local_base_dir, &host.addr, &tgz_name);
+                        remote.get_file(remote_tgz_path, local_path).c(d!())
                     })
                 })
             })
