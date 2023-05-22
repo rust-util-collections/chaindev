@@ -842,7 +842,10 @@ impl<P: NodePorts> Node<P> {
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if self.is_running().c(d!())? {
+        if self
+            .is_running(&env.meta.app_bin, &env.meta.tendermint_bin)
+            .c(d!())?
+        {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
         }
 
@@ -868,10 +871,10 @@ impl<P: NodePorts> Node<P> {
         }
     }
 
-    fn is_running(&self) -> Result<bool> {
+    fn is_running(&self, app_bin: &str, tendermint_bin: &str) -> Result<bool> {
         let cmd = format!(
-            "ps ax -o pid,args | grep '{}' | grep -v 'grep' | wc -l",
-            &self.home
+            "ps ax -o pid,args | grep -E '({0}.*{2})|({1}.*{2})' | grep -v 'grep' | wc -l",
+            app_bin, tendermint_bin, &self.home
         );
 
         // Use the `wc -l` instead of the `grep -vc 'grep'`
