@@ -354,34 +354,39 @@ where
         "/tmp"
     };
 
-    let errlist = env
-        .meta
-        .nodes
-        .values()
-        .chain(env.meta.bootstraps.values())
-        .flat_map(|n| {
-            files.iter().map(|f| {
-                (
-                    n.host.clone(),
-                    *f,
-                    format!("{}/{}", &n.home, f),
-                    format!("N{}_{}_{}", n.id, n.kind, f.replace('/', "_")),
-                )
+    let errlist = thread::scope(|s| {
+        env.meta
+            .bootstraps
+            .values()
+            .chain(env.meta.nodes.values())
+            .flat_map(|n| {
+                files.iter().map(|f| {
+                    (
+                        n.host.clone(),
+                        *f,
+                        format!("{}/{}", &n.home, f),
+                        format!("N{}_{}_{}", n.id, n.kind, f.replace('/', "_")),
+                    )
+                })
             })
-        })
-        .map(|(host, relative_path, remote_path, remote_file)| {
-            let remote = Remote::from(&host);
-            let local_path =
-                format!("{}/{}.{{{}}}", local_base_dir, remote_file, &host.addr);
-            remote.get_file(remote_path, &local_path).c(d!()).map(|_| {
+            .map(|(host, relative_path, remote_path, remote_file)| {
+                let local_path =
+                    format!("{}/{}.{{{}}}", local_base_dir, remote_file, &host.addr);
                 path_map
                     .entry(relative_path)
                     .or_insert_with(Vec::new)
-                    .push(local_path);
+                    .push(local_path.clone());
+                s.spawn(move || {
+                    let remote = Remote::from(&host);
+                    remote.get_file(remote_path, &local_path).c(d!())
+                })
             })
-        })
-        .filter(|t| t.is_err())
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|h| h.join())
+            .filter(|t| t.is_err())
+            .collect::<Vec<_>>()
+    });
 
     check_errlist!(@errlist);
 
@@ -414,41 +419,44 @@ where
         "/tmp"
     };
 
-    let errlist = env
-        .meta
-        .bootstraps
-        .values()
-        .chain(env.meta.nodes.values())
-        .flat_map(|n| {
-            paths.iter().map(|path| {
-                (
-                    n.host.clone(),
-                    *path,
-                    format!("{}/{}", &n.home, path),
-                    format!("N{}_{}_{}.tgz", n.id, n.kind, path.replace('/', "_")),
-                )
+    let errlist = thread::scope(|s| {
+        env.meta
+            .bootstraps
+            .values()
+            .chain(env.meta.nodes.values())
+            .flat_map(|n| {
+                paths.iter().map(|path| {
+                    (
+                        n.host.clone(),
+                        *path,
+                        format!("{}/{}", &n.home, path),
+                        format!("N{}_{}_{}.tgz", n.id, n.kind, path.replace('/', "_")),
+                    )
+                })
             })
-        })
-        .map(|(host, relative_path, remote_path, tgz_name)| {
-            let remote = Remote::from(&host);
-            let tgzcmd = format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
-            remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
+            .map(|(host, relative_path, remote_path, tgz_name)| {
+                let tgzcmd =
+                    format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
                 let remote_tgz_path = format!("/tmp/{}", tgz_name);
                 let local_path =
                     format!("{}/{}.{{{}}}", local_base_dir, &tgz_name, &host.addr);
-                remote
-                    .get_file(remote_tgz_path, &local_path)
-                    .c(d!())
-                    .map(|_| {
-                        path_map
-                            .entry(relative_path)
-                            .or_insert_with(Vec::new)
-                            .push(local_path);
+                path_map
+                    .entry(relative_path)
+                    .or_insert_with(Vec::new)
+                    .push(local_path.clone());
+                s.spawn(move || {
+                    let remote = Remote::from(&host);
+                    remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
+                        remote.get_file(remote_tgz_path, &local_path).c(d!())
                     })
+                })
             })
-        })
-        .filter(|t| t.is_err())
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|h| h.join())
+            .filter(|t| t.is_err())
+            .collect::<Vec<_>>()
+    });
 
     check_errlist!(@errlist);
 
