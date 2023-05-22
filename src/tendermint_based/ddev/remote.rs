@@ -372,7 +372,7 @@ where
         .map(|(host, relative_path, remote_path, remote_file)| {
             let remote = Remote::from(&host);
             let local_path =
-                format!("{}/{}_{}", local_base_dir, &host.addr, remote_file);
+                format!("{}/{}.{{{}}}", local_base_dir, remote_file, &host.addr);
             remote.get_file(remote_path, &local_path).c(d!()).map(|_| {
                 path_map
                     .entry(relative_path)
@@ -385,8 +385,12 @@ where
 
     check_errlist!(@errlist);
 
-    path_map.iter().for_each(|(f, paths)| {
-        println!("Files of the {} are stored at {}", f, paths.join(","));
+    path_map.into_iter().for_each(|(f, mut paths)| {
+        println!("Files of the '{}' are stored at:", f);
+        paths.sort();
+        paths.iter().for_each(|p| {
+            println!("\t- {}", p);
+        });
     });
 
     Ok(())
@@ -431,7 +435,7 @@ where
             remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
                 let remote_tgz_path = format!("/tmp/{}", tgz_name);
                 let local_path =
-                    format!("{}/{}_{}", local_base_dir, &host.addr, &tgz_name);
+                    format!("{}/{}.{{{}}}", local_base_dir, &tgz_name, &host.addr);
                 remote
                     .get_file(remote_tgz_path, &local_path)
                     .c(d!())
@@ -448,8 +452,12 @@ where
 
     check_errlist!(@errlist);
 
-    path_map.iter().for_each(|(f, paths)| {
-        println!("Files of the {} are stored at {}", f, paths.join(","));
+    path_map.into_iter().for_each(|(f, mut paths)| {
+        println!("Files of the '{}' are stored at:", f);
+        paths.sort();
+        paths.iter().for_each(|p| {
+            println!("\t- {}", p);
+        });
     });
 
     Ok(())

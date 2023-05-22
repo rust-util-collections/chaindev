@@ -290,7 +290,8 @@ where
     }
 
     pub fn get_addrports_any_node(&self) -> (HostAddrRef, Vec<u16>) {
-        let node = pnk!(self.nodes.values().next());
+        let node = self.bootstraps.values().chain(self.nodes.values()).next();
+        let node = pnk!(node);
         let addr = node.host.addr.as_str();
         let ports = node.ports.get_port_list();
         (addr, ports)
