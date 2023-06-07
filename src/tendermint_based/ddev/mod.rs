@@ -5,7 +5,7 @@
 mod host;
 mod remote;
 
-use host::{HostExpression, HostExpressionRef, HostMeta, HostOS};
+use host::{HostMeta, HostOS};
 use once_cell::sync::Lazy;
 use rand::random;
 use remote::Remote;
@@ -21,7 +21,7 @@ use toml_edit::{value as toml_value, Array, Document};
 use vsdb::MapxRaw;
 
 pub use super::common::*;
-pub use host::{Host, HostAddr, HostAddrRef, Hosts};
+pub use host::{Host, HostAddr, HostAddrRef, HostExpression, HostExpressionRef, Hosts};
 
 static GLOBAL_BASE_DIR: Lazy<String> = Lazy::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
 
