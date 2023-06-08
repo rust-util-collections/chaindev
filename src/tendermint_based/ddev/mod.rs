@@ -1271,7 +1271,11 @@ where
         let port_is_free = |p: &u16| !occupied.contains(p);
 
         let mut res = vec![];
-        if matches!(node_kind, NodeKind::Bootstrap)
+
+        // Avoid the preserved ports to be allocated on any validator node,
+        // allow non-valdator nodes(on different hosts) to
+        // get the owned preserved ports on their own scopes
+        if !matches!(node_kind, NodeKind::Node)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved.iter().all(|hp| !PC.contains(hp))
             && reserved_ports.iter().all(|p| port_is_free(p))

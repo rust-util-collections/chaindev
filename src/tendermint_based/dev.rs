@@ -605,7 +605,9 @@ where
         let reserved_ports = P::reserved();
 
         let mut res = vec![];
-        if matches!(node_kind, NodeKind::Bootstrap)
+
+        // Avoid the preserved ports to be allocated on any validator node
+        if !matches!(node_kind, NodeKind::Node)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved_ports
                 .iter()
