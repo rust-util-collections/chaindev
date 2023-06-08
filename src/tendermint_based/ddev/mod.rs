@@ -12,13 +12,19 @@ use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::{collections::BTreeMap, fmt, fs, io::ErrorKind, path::PathBuf, thread};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt, fs,
+    io::ErrorKind,
+    path::PathBuf,
+    thread,
+};
 use tendermint::{validator::Info as TmValidator, vote::Power as TmPower, Genesis};
 use tendermint_config::{
     NodeKey, PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
 };
 use toml_edit::{value as toml_value, Array, Document};
-use vsdb::MapxRaw;
+use vsdb::MapxOrd;
 
 pub use super::common::*;
 pub use host::{Host, HostAddr, HostAddrRef, HostExpression, HostExpressionRef, Hosts};
@@ -522,6 +528,7 @@ where
         let id = self.next_node_id();
         self.alloc_resources(id, node_kind, host_addr)
             .c(d!())
+            .and_then(|_| self.write_cfg().c(d!()))
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
             .map(|_| id)
     }
@@ -563,10 +570,14 @@ where
             seq.sort_unstable_by(|a, b| a.1.cmp(&b.1));
             seq.into_iter()
                 .find(|h| h.0.addr != host_addr)
-                .c(d!())
+                .c(d!("no avaliable hosts left, migrate failed"))
                 .map(|h| h.0)?
                 .addr
         };
+
+        if host_addr == new_host_addr {
+            return Err(eg!("The host where the two nodes are located is the same"));
+        }
 
         let new_node_id = self
             .push_node_data(node_kind, Some(&new_host_addr))
@@ -583,7 +594,17 @@ where
             .get(&node_id)
             .or_else(|| self.meta.nodes.get(&node_id))
             .c(d!("BUG"))
-            .and_then(|node| node.migrate(new_base).c(d!()))?;
+            .and_then(|node| {
+                node.migrate(new_base).c(d!()).and_then(|_| {
+                    self.apply_resources(
+                        node.id,
+                        node.kind,
+                        node.host.clone(),
+                        node.ports.clone(),
+                    )
+                    .c(d!())
+                })
+            })?;
 
         self.kick_node(Some(node_id)).c(d!())
     }
@@ -657,7 +678,7 @@ where
                 .chain(self.meta.nodes.values())
                 .filter(|n| n.host.addr == host_addr)
                 .map(|n| n.id)
-                .collect::<Vec<_>>();
+                .collect::<BTreeSet<_>>();
             for id in nodes_to_migrate.into_iter() {
                 self.migrate_node(id, None).c(d!())?;
             }
@@ -853,8 +874,26 @@ where
         kind: NodeKind,
         host_addr: Option<HostAddrRef>,
     ) -> Result<()> {
-        // 1.
-        let (host, ports) = self.alloc_hosts_ports(&kind, host_addr).c(d!())?;
+        self.alloc_hosts_ports(&kind, host_addr) // 1.
+            .c(d!())
+            .and_then(|(host, ports)| {
+                self.apply_resources(id, kind, host, ports).c(d!()) // 2. 3. 4.
+            })
+            .map(|node| {
+                match kind {
+                    NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
+                    NodeKind::Node => self.meta.nodes.insert(id, node),
+                };
+            })
+    }
+
+    fn apply_resources(
+        &self,
+        id: NodeID,
+        kind: NodeKind,
+        host: HostMeta,
+        ports: P,
+    ) -> Result<Node<P>> {
         let remote = Remote::from(&host);
 
         // 2.
@@ -868,7 +907,7 @@ where
         };
 
         let cmd = format!(
-            "{} init {} --home {}",
+            "{0} init {1} --home {2}; rm -f {2}/config/addrbook.json",
             &self.meta.tendermint_bin, role_mark, &home
         );
         let mut cfg = remote
@@ -968,12 +1007,7 @@ where
             ports,
         };
 
-        match kind {
-            NodeKind::Node => self.meta.nodes.insert(id, node),
-            NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
-        };
-
-        Ok(())
+        Ok(node)
     }
 
     fn update_peer_cfg(&self) -> Result<()> {
@@ -986,6 +1020,9 @@ where
                 .chain(self.meta.bootstraps.values())
             {
                 let hdr = s.spawn(|| {
+                    self.apply_resources(n.id, n.kind, n.host.clone(), n.ports.clone())
+                        .c(d!())?;
+
                     let remote = Remote::from(&n.host);
                     let cfgfile = format!("{}/config/config.toml", &n.home);
                     let mut cfg = remote
@@ -1419,7 +1456,7 @@ impl<P: NodePorts> Node<P> {
             return Err(eg!("The source cfg path is invalid"));
         }
 
-        if !remote_to.file_accessible(&new_base.home).c(d!())? {
+        if !remote_to.file_is_dir(&new_base.home).c(d!())? {
             return Err(eg!("The new base has not been built"));
         }
 
@@ -1434,7 +1471,11 @@ impl<P: NodePorts> Node<P> {
             .c(d!())
             .and_then(|_| {
                 let cmd = format!(
-                    "rm -rf {0} /tmp/{1} && cd /tmp && tar -xf {2} && mv /tmp/{1} {0}",
+                    r"
+                    rm -rf {0} /tmp/{1} && \
+                    cd /tmp && tar -xf {2} && \
+                    mv /tmp/{1} {0}
+                    ",
                     target_cfg_path, source_cfg_path, remote_tgz_path
                 );
                 remote_to.exec_cmd(&cmd).c(d!()).map(|_| ())
@@ -1541,40 +1582,56 @@ where
     pub custom_data: C,
 }
 
-static PC: Lazy<PortsCache> = Lazy::new(PortsCache::new);
+static PC: Lazy<PortsCache> = Lazy::new(|| pnk!(PortsCache::load_or_create()));
 
 #[derive(Serialize, Deserialize)]
 struct PortsCache {
     vsdb_base_dir: String,
     // [ <remote addr + remote port> ]
-    port_set: MapxRaw,
+    port_set: MapxOrd<String, ()>,
 }
 
 impl PortsCache {
-    fn new() -> Self {
+    fn load_or_create() -> Result<Self> {
         let vbd = format!("{}/ports_cache", &*GLOBAL_BASE_DIR);
-        pnk!(vsdb::vsdb_set_base_dir(&vbd));
-        Self {
-            vsdb_base_dir: vbd,
-            port_set: MapxRaw::new(),
-        }
+        vsdb::vsdb_set_base_dir(&vbd).c(d!())?;
+
+        let meta_path = format!("{}/meta.json", &vbd);
+
+        let ret = match fs::read(&meta_path) {
+            Ok(c) => serde_json::from_slice(&c).c(d!())?,
+            Err(e) => match e.kind() {
+                ErrorKind::NotFound => {
+                    let r = Self {
+                        vsdb_base_dir: vbd,
+                        port_set: MapxOrd::new(),
+                    };
+                    serde_json::to_vec(&r)
+                        .c(d!())
+                        .and_then(|c| fs::write(meta_path, c).c(d!()))?;
+                    r
+                }
+                _ => return Err(e).c(d!()),
+            },
+        };
+        Ok(ret)
     }
 
     fn contains(&self, port: &str) -> bool {
-        self.port_set.contains_key(port.as_bytes())
+        self.port_set.contains_key(&port.to_owned())
     }
 
     fn set(&self, ports: &[String]) {
         for p in ports {
             assert!(
                 unsafe { self.port_set.shadow() }
-                    .insert(p.as_bytes(), [1])
+                    .insert(&p.to_owned(), &())
                     .is_none()
             );
         }
     }
 
     fn remove(&self, port: &str) {
-        unsafe { self.port_set.shadow() }.remove(port.as_bytes());
+        unsafe { self.port_set.shadow() }.remove(&port.to_owned());
     }
 }

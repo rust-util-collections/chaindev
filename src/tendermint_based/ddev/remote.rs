@@ -107,19 +107,13 @@ impl<'a> Remote<'a> {
             .map_err(|e| eg!(e))
     }
 
-    pub(super) fn file_is_dir<P: AsRef<Path>>(&self, remote_path: P) -> Result<bool> {
-        self.inner.file_stat(remote_path).map(|s| s.is_dir())
-    }
-
-    // pub(super) fn file_is_file<P: AsRef<Path>>(&self, remote_path: P) -> Result<bool> {
-    //     self.inner.file_stat(remote_path).map(|s| s.is_file())
-    // }
-
-    pub(super) fn file_accessible<P: AsRef<Path>>(
-        &self,
-        remote_path: P,
-    ) -> Result<bool> {
-        self.inner.file_stat(remote_path).map(|_| true)
+    pub(super) fn file_is_dir<P: AsRef<str>>(&self, remote_path: P) -> Result<bool> {
+        self.exec_cmd(&format!(
+            r"\ls -ld {} | grep -o '^.'",
+            &remote_path.as_ref()
+        ))
+        .c(d!())
+        .map(|file_mark| "d" == file_mark.trim())
     }
 
     pub(super) fn get_occupied_ports(&self) -> Result<BTreeSet<u16>> {
