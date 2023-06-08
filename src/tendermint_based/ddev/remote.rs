@@ -358,7 +358,8 @@ where
         env.meta
             .bootstraps
             .values()
-            .chain(env.meta.nodes.values())
+            .chain(env.meta.validators.values())
+            .chain(env.meta.full_nodes.values())
             .flat_map(|n| {
                 files.iter().map(|f| {
                     (
@@ -423,7 +424,8 @@ where
         env.meta
             .bootstraps
             .values()
-            .chain(env.meta.nodes.values())
+            .chain(env.meta.validators.values())
+            .chain(env.meta.full_nodes.values())
             .flat_map(|n| {
                 paths.iter().map(|path| {
                     (
