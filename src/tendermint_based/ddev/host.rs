@@ -110,7 +110,8 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
     let hosts = hosts
         .trim_matches(|c| c == ' ' || c == '\t' || c == '\n')
         .split(',')
-        .map(|h| h.split('#').collect::<Vec<_>>())
+        .filter(|l| !l.is_empty())
+        .map(|h| h.trim().split('#').collect::<Vec<_>>())
         .collect::<Vec<_>>();
 
     if hosts.iter().any(|h| h.is_empty()) || hosts.iter().any(|h| h.len() > 5) {
