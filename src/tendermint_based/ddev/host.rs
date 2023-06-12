@@ -108,7 +108,7 @@ impl AsMut<HostMap> for Hosts {
 /// "
 pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
     let hosts = hosts
-        .trim_matches(|c| c == ' ' || c == '\t')
+        .trim_matches(|c| c == ' ' || c == '\t' || c == '\n')
         .split(',')
         .map(|h| h.split('#').collect::<Vec<_>>())
         .collect::<Vec<_>>();
