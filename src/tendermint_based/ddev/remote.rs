@@ -21,7 +21,7 @@ impl<'a> From<&'a HostMeta> for Remote<'a> {
     fn from(h: &'a HostMeta) -> Self {
         Remote {
             inner: ssh::RemoteHost {
-                addr: &h.addr,
+                addr: h.addr.connection_addr(),
                 user: &h.ssh_user,
                 port: h.ssh_port,
                 local_seckeys: h.ssh_local_seckeys.iter().map(|p| p.as_path()).collect(),
@@ -364,8 +364,12 @@ where
                 })
             })
             .map(|(host, relative_path, remote_path, remote_file)| {
-                let local_path =
-                    format!("{}/{}.{{{}}}", local_base_dir, remote_file, &host.addr);
+                let local_path = format!(
+                    "{}/{}.{{{}}}",
+                    local_base_dir,
+                    remote_file,
+                    host.addr.connection_addr()
+                );
                 path_map
                     .entry(relative_path)
                     .or_insert_with(Vec::new)
@@ -432,8 +436,12 @@ where
                 let tgzcmd =
                     format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
                 let remote_tgz_path = format!("/tmp/{}", tgz_name);
-                let local_path =
-                    format!("{}/{}.{{{}}}", local_base_dir, &tgz_name, &host.addr);
+                let local_path = format!(
+                    "{}/{}.{{{}}}",
+                    local_base_dir,
+                    &tgz_name,
+                    host.addr.connection_addr()
+                );
                 path_map
                     .entry(relative_path)
                     .or_insert_with(Vec::new)

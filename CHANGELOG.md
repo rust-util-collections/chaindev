@@ -1,5 +1,11 @@
 # Change log
 
+#### v0.20.x
+
+- Support double addresses
+  - A local address
+  - An optional external address
+
 #### v0.14.x
 
 - Remove the `unix_abstract_socket` feature

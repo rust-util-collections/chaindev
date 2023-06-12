@@ -2,7 +2,7 @@ use super::remote::Remote;
 use once_cell::sync::Lazy;
 use ruc::*;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, env, path::PathBuf, str::FromStr, thread};
+use std::{collections::BTreeMap, env, fmt, path::PathBuf, str::FromStr, thread};
 
 static DEFAULT_SSH_USER: Lazy<String> =
     Lazy::new(|| pnk!(env::var("USER"), "$USER not defined!"));
@@ -25,8 +25,52 @@ static DEFAULT_SSH_PRIVKEY_PATH: Lazy<Vec<PathBuf>> = Lazy::new(|| {
 });
 
 // ip, domain, ...
-pub type HostAddr = String;
-pub type HostAddrRef<'a> = &'a str;
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HostAddr {
+    pub local: String,
+    pub external: Option<String>,
+}
+
+impl HostAddr {
+    pub fn connection_addr(&self) -> &str {
+        self.external.as_deref().unwrap_or(&self.local)
+    }
+}
+
+impl fmt::Display for HostAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}|{}",
+            self.local,
+            self.external.as_deref().unwrap_or_default()
+        )
+    }
+}
+
+impl FromStr for HostAddr {
+    type Err = Box<dyn RucError>;
+    fn from_str(s: &str) -> Result<Self> {
+        let addrs = s.split('|').collect::<Vec<_>>();
+        if addrs.is_empty() || addrs.len() > 2 {
+            return Err(eg!());
+        }
+
+        let addr = if 1 == addrs.len() {
+            HostAddr {
+                local: addrs[0].to_owned(),
+                external: None,
+            }
+        } else {
+            HostAddr {
+                local: addrs[0].to_owned(),
+                external: Some(addrs[1].to_owned()),
+            }
+        };
+        Ok(addr)
+    }
+}
+
 pub type HostExpression = String;
 pub type HostExpressionRef<'a> = &'a str;
 
@@ -43,6 +87,7 @@ pub struct Host {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HostMeta {
+    // addr, addr_external
     pub addr: HostAddr,
     pub ssh_user: String,
     pub ssh_port: u16,
@@ -100,10 +145,10 @@ impl AsMut<HostMap> for Hosts {
 }
 
 /// "
-///   ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
 ///   ...,
 ///   ...,
-///   ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
 ///   ...,
 /// "
 pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
@@ -122,9 +167,9 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
         .into_iter()
         .map(|h| {
             if 1 == h.len() {
-                Ok(Host {
+                HostAddr::from_str(h[0]).c(d!()).map(|addr| Host {
                     meta: HostMeta {
-                        addr: h[0].to_owned(),
+                        addr,
                         ssh_user: DEFAULT_SSH_USER.clone(),
                         ssh_port: 22,
                         ssh_local_seckeys: DEFAULT_SSH_PRIVKEY_PATH.clone(),
@@ -133,9 +178,9 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
                     node_cnt: 0,
                 })
             } else if 2 == h.len() {
-                Ok(Host {
+                HostAddr::from_str(h[0]).c(d!()).map(|addr| Host {
                     meta: HostMeta {
-                        addr: h[0].to_owned(),
+                        addr,
                         ssh_user: h[1].to_owned(),
                         ssh_port: 22,
                         ssh_local_seckeys: DEFAULT_SSH_PRIVKEY_PATH.clone(),
@@ -144,31 +189,35 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
                     node_cnt: 0,
                 })
             } else if 3 == h.len() {
-                h[2].parse::<u16>().c(d!()).map(|p| Host {
-                    meta: HostMeta {
-                        addr: h[0].to_owned(),
-                        ssh_user: h[1].to_owned(),
-                        ssh_port: p,
-                        ssh_local_seckeys: DEFAULT_SSH_PRIVKEY_PATH.clone(),
-                    },
-                    weight: 0,
-                    node_cnt: 0,
-                })
-            } else {
-                h[2].parse::<u16>().c(d!()).and_then(|p| {
-                    h[3].parse::<u64>().c(d!()).map(|w| Host {
+                HostAddr::from_str(h[0]).c(d!()).and_then(|addr| {
+                    h[2].parse::<u16>().c(d!()).map(|p| Host {
                         meta: HostMeta {
-                            addr: h[0].to_owned(),
+                            addr,
                             ssh_user: h[1].to_owned(),
                             ssh_port: p,
-                            ssh_local_seckeys: alt!(
-                                5 == h.len(),
-                                vec![PathBuf::from(h[4])],
-                                DEFAULT_SSH_PRIVKEY_PATH.clone()
-                            ),
+                            ssh_local_seckeys: DEFAULT_SSH_PRIVKEY_PATH.clone(),
                         },
-                        weight: w,
+                        weight: 0,
                         node_cnt: 0,
+                    })
+                })
+            } else {
+                HostAddr::from_str(h[0]).c(d!()).and_then(|addr| {
+                    h[2].parse::<u16>().c(d!()).and_then(|p| {
+                        h[3].parse::<u64>().c(d!()).map(|w| Host {
+                            meta: HostMeta {
+                                addr,
+                                ssh_user: h[1].to_owned(),
+                                ssh_port: p,
+                                ssh_local_seckeys: alt!(
+                                    5 == h.len(),
+                                    vec![PathBuf::from(h[4])],
+                                    DEFAULT_SSH_PRIVKEY_PATH.clone()
+                                ),
+                            },
+                            weight: w,
+                            node_cnt: 0,
+                        })
                     })
                 })
             }

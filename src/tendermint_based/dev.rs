@@ -2,7 +2,6 @@
 //! Localhost version.
 //!
 
-use super::ddev::HostAddrRef;
 use nix::{
     sys::socket::{
         self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType, SockaddrIn,
@@ -184,7 +183,7 @@ where
         }
     }
 
-    pub fn get_addrports_any_node(&self) -> (HostAddrRef, Vec<u16>) {
+    pub fn get_addrports_any_node(&self) -> (&str, Vec<u16>) {
         let addr = self.host_ip.as_str();
         let node = self.bootstraps.values().chain(self.nodes.values()).next();
         let ports = pnk!(node).ports.get_port_list();

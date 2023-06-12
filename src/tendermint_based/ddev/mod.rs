@@ -27,7 +27,7 @@ use toml_edit::{value as toml_value, Array, Document};
 use vsdb::MapxOrd;
 
 pub use super::common::*;
-pub use host::{Host, HostAddr, HostAddrRef, HostExpression, HostExpressionRef, Hosts};
+pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, Hosts};
 
 static GLOBAL_BASE_DIR: Lazy<String> = Lazy::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
 
@@ -82,12 +82,12 @@ where
             Op::DestroyAll => Env::<C, P, S>::destroy_all().c(d!()),
             Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.push_node(host_addr.as_deref()).c(d!())),
+                .and_then(|mut env| env.push_node(host_addr.as_ref()).c(d!())),
             Op::MigrateNode((node_id, host_addr)) => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
-                        env.migrate_node(*node_id, host_addr.as_deref()).c(d!())
+                        env.migrate_node(*node_id, host_addr.as_ref()).c(d!())
                     })
             }
             Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
@@ -98,7 +98,7 @@ where
                 .and_then(|mut env| env.push_host(host_expression.as_str()).c(d!())),
             Op::KickHost((host_addr, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_host(host_addr.as_str(), *force).c(d!())),
+                .and_then(|mut env| env.kick_host(host_addr, *force).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
@@ -286,8 +286,8 @@ where
         S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let p = format!("{}/envs/{}/config.json", &*GLOBAL_BASE_DIR, cfg_name);
-        match fs::read_to_string(p) {
-            Ok(d) => Ok(serde_json::from_str(&d).c(d!())?),
+        match fs::read(p) {
+            Ok(d) => Ok(msgpack::from_slice(&d).c(d!())?),
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => Ok(None),
                 _ => Err(eg!(e)),
@@ -295,16 +295,16 @@ where
         }
     }
 
-    pub fn get_addrports_any_node(&self) -> (HostAddrRef, Vec<u16>) {
+    pub fn get_addrports_any_node(&self) -> (&str, Vec<u16>) {
         let node = self.bootstraps.values().chain(self.nodes.values()).next();
         let node = pnk!(node);
-        let addr = node.host.addr.as_str();
+        let addr = node.host.addr.connection_addr();
         let ports = node.ports.get_port_list();
         (addr, ports)
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub struct Env<C, P, S>
 where
@@ -512,9 +512,7 @@ where
         Ok(())
     }
 
-    // bootstrap nodes are kept by system for now,
-    // so only the other nodes can be added on demand
-    fn push_node(&mut self, host_addr: Option<HostAddrRef>) -> Result<()> {
+    fn push_node(&mut self, host_addr: Option<&HostAddr>) -> Result<()> {
         self.push_node_data(NodeKind::Node, host_addr)
             .c(d!())
             .and_then(|id| self.start(Some(id)).c(d!()))
@@ -523,7 +521,7 @@ where
     fn push_node_data(
         &mut self,
         node_kind: NodeKind,
-        host_addr: Option<HostAddrRef>,
+        host_addr: Option<&HostAddr>,
     ) -> Result<NodeID> {
         let id = self.next_node_id();
         self.alloc_resources(id, node_kind, host_addr)
@@ -538,7 +536,7 @@ where
     fn migrate_node(
         &mut self,
         node_id: NodeID,
-        new_host_addr: Option<HostAddrRef>,
+        new_host_addr: Option<&HostAddr>,
     ) -> Result<()> {
         let (node_id, node_kind, host_addr) = self
             .meta
@@ -549,7 +547,7 @@ where
             .map(|n| (n.id, n.kind, n.host.addr.clone()))?;
 
         let new_host_addr = if let Some(addr) = new_host_addr {
-            addr.to_owned()
+            addr.clone()
         } else {
             let mut seq = self
                 .meta
@@ -654,7 +652,7 @@ where
             .hosts
             .as_ref()
             .keys()
-            .any(|addr| new_hosts.contains_key(addr.as_str()))
+            .any(|addr| new_hosts.contains_key(addr))
         {
             return Err(eg!("One or more hosts already exist"));
         }
@@ -662,7 +660,7 @@ where
         self.write_cfg().c(d!())
     }
 
-    fn kick_host(&mut self, host_addr: HostAddrRef, force: bool) -> Result<()> {
+    fn kick_host(&mut self, host_addr: &HostAddr, force: bool) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -676,7 +674,7 @@ where
                 .bootstraps
                 .values()
                 .chain(self.meta.nodes.values())
-                .filter(|n| n.host.addr == host_addr)
+                .filter(|n| &n.host.addr == host_addr)
                 .map(|n| n.id)
                 .collect::<BTreeSet<_>>();
             for id in nodes_to_migrate.into_iter() {
@@ -802,7 +800,7 @@ where
     }
 
     fn show(&self) {
-        println!("{}", pnk!(serde_json::to_string_pretty(self)));
+        dbg!(self);
     }
 
     // Show the details of all existing ENVs
@@ -872,7 +870,7 @@ where
         &mut self,
         id: NodeID,
         kind: NodeKind,
-        host_addr: Option<HostAddrRef>,
+        host_addr: Option<&HostAddr>,
     ) -> Result<()> {
         self.alloc_hosts_ports(&kind, host_addr) // 1.
             .c(d!())
@@ -916,14 +914,20 @@ where
             .and_then(|_| remote.read_file(&cfgfile).c(d!()))
             .and_then(|c| c.parse::<Document>().c(d!()))?;
 
-        cfg["proxy_app"] =
-            toml_value(format!("tcp://{}:{}", &host.addr, ports.get_sys_abci()));
+        cfg["proxy_app"] = toml_value(format!(
+            "tcp://{}:{}",
+            &host.addr.local,
+            ports.get_sys_abci()
+        ));
 
         let remote_os = remote.hosts_os().c(d!())?;
         match remote_os {
             HostOS::Linux | HostOS::MacOS => {
-                cfg["rpc"]["laddr"] =
-                    toml_value(format!("tcp://{}:{}", &host.addr, ports.get_sys_rpc()));
+                cfg["rpc"]["laddr"] = toml_value(format!(
+                    "tcp://{}:{}",
+                    &host.addr.local,
+                    ports.get_sys_rpc()
+                ));
             }
             _ => return Err(eg!("Unsupported OS: {:?}!", remote_os)),
         }
@@ -942,8 +946,15 @@ where
         cfg["p2p"]["send_rate"] = toml_value(GB);
         cfg["p2p"]["recv_rate"] = toml_value(GB);
         cfg["p2p"]["max_packet_msg_payload_size"] = toml_value(MB);
-        cfg["p2p"]["laddr"] =
-            toml_value(format!("tcp://{}:{}", &host.addr, ports.get_sys_p2p()));
+        cfg["p2p"]["laddr"] = toml_value(format!(
+            "tcp://{}:{}",
+            &host.addr.local,
+            ports.get_sys_p2p()
+        ));
+        if let Some(addr_external) = host.addr.external.as_ref() {
+            cfg["p2p"]["external_address"] =
+                toml_value(format!("{}:{}", &addr_external, ports.get_sys_p2p()));
+        }
 
         cfg["consensus"]["timeout_propose"] = toml_value("8s");
         cfg["consensus"]["timeout_propose_delta"] = toml_value("500ms");
@@ -1039,7 +1050,7 @@ where
                                 format!(
                                     "{}@{}:{}",
                                     &n.tm_id,
-                                    &n.host.addr,
+                                    n.host.addr.connection_addr(),
                                     n.ports.get_sys_p2p()
                                 )
                             })
@@ -1237,7 +1248,7 @@ where
 
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
-        serde_json::to_vec_pretty(self).c(d!()).and_then(|d| {
+        msgpack::to_vec(self).c(d!()).and_then(|d| {
             fs::write(format!("{}/config.json", &self.meta.home), d).c(d!())
         })
     }
@@ -1246,7 +1257,7 @@ where
     fn alloc_hosts_ports(
         &mut self,
         node_kind: &NodeKind,
-        host_addr: Option<HostAddrRef>,
+        host_addr: Option<&HostAddr>,
     ) -> Result<(HostMeta, P)> {
         let host = self.alloc_host(node_kind, host_addr).c(d!())?;
         let ports = self.alloc_ports(node_kind, &host).c(d!())?;
@@ -1256,7 +1267,7 @@ where
     fn alloc_host(
         &mut self,
         node_kind: &NodeKind,
-        host_addr: Option<HostAddrRef>,
+        host_addr: Option<&HostAddr>,
     ) -> Result<HostMeta> {
         if let Some(addr) = host_addr {
             return self
@@ -1515,7 +1526,7 @@ where
     PushNode(Option<HostAddr>),
     MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
-    // "ssh_remote_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey"
+    // remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey
     PushHost(HostExpression),
     KickHost((HostAddr, bool)),
     Protect,
