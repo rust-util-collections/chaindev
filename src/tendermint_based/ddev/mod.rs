@@ -565,7 +565,7 @@ where
                         .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
                         .collect::<Vec<_>>()
                 })?;
-            seq.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+            seq.sort_by(|a, b| a.1.cmp(&b.1));
             seq.into_iter()
                 .find(|h| h.0.addr != host_addr)
                 .c(d!("no avaliable hosts left, migrate failed"))
@@ -1298,7 +1298,7 @@ where
                 .values()
                 .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
                 .collect::<Vec<_>>();
-            seq.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+            seq.sort_by(|a, b| a.1.cmp(&b.1));
             seq.into_iter().next().c(d!()).map(|h| h.0)?
         };
 
