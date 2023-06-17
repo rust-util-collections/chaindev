@@ -76,10 +76,10 @@ where
     {
         match &self.op {
             Op::Create(envopts) => Env::<C, P, S>::create(self, envopts, s).c(d!()),
-            Op::Destroy => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Destroy(force) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.destroy().c(d!())),
-            Op::DestroyAll => Env::<C, P, S>::destroy_all().c(d!()),
+                .and_then(|env| env.destroy(*force).c(d!())),
+            Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
             Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_node(host_addr.as_ref()).c(d!())),
@@ -336,7 +336,7 @@ where
 
         if opts.force_create {
             if let Ok(env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
-                env.destroy().c(d!())?;
+                env.destroy(true).c(d!())?;
             }
 
             omit!(fs::remove_dir_all(&home).c(d!()).and_then(|_| {
@@ -442,8 +442,8 @@ where
     // Destroy all nodes
     // - Stop all running processes
     // - Delete the data of every nodes
-    fn destroy(&self) -> Result<()> {
-        if self.is_protected {
+    fn destroy(&self, force: bool) -> Result<()> {
+        if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
                 self.meta.name
@@ -493,7 +493,7 @@ where
     }
 
     // Destroy all existing ENVs
-    fn destroy_all() -> Result<()> {
+    fn destroy_all(force: bool) -> Result<()> {
         let mut hosts = BTreeMap::new();
         for name in Self::get_env_list().c(d!())?.iter() {
             let mut env = Self::load_env_by_name(name)
@@ -505,7 +505,7 @@ where
                 continue;
             }
 
-            env.destroy().c(d!())?;
+            env.destroy(force).c(d!())?;
             hosts.append(env.meta.hosts.as_mut());
         }
 
@@ -1521,20 +1521,20 @@ where
     U: CustomOps,
 {
     Create(EnvOpts<A, C>),
-    Destroy,
-    DestroyAll,
+    Destroy(bool),    // force or not
+    DestroyAll(bool), // force or not
     PushNode(Option<HostAddr>),
     MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
     // remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey
     PushHost(HostExpression),
-    KickHost((HostAddr, bool)),
+    KickHost((HostAddr, bool)), // force or not
     Protect,
     Unprotect,
     Start(Option<NodeID>),
     StartAll,
-    Stop((Option<NodeID>, bool)),
-    StopAll(bool),
+    Stop((Option<NodeID>, bool)), // force or not
+    StopAll(bool),                // force or not
     Show,
     ShowAll,
     List,

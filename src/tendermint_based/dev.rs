@@ -62,10 +62,10 @@ where
     {
         match &self.op {
             Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
-            Op::Destroy => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Destroy(force) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.destroy().c(d!())),
-            Op::DestroyAll => Env::<C, P, S>::destroy_all().c(d!()),
+                .and_then(|env| env.destroy(*force).c(d!())),
+            Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
             Op::PushNode => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_node().c(d!())),
@@ -223,9 +223,8 @@ where
 
         if opts.force_create {
             if let Ok(env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
-                env.destroy().c(d!())?;
+                env.destroy(true).c(d!())?;
             }
-
             omit!(fs::remove_dir_all(&home));
         }
 
@@ -276,8 +275,8 @@ where
     // Destroy all nodes
     // - Stop all running processes
     // - Delete the data of every nodes
-    fn destroy(&self) -> Result<()> {
-        if self.is_protected {
+    fn destroy(&self, force: bool) -> Result<()> {
+        if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
                 self.meta.name
@@ -300,18 +299,12 @@ where
     }
 
     // destroy all existing ENVs
-    fn destroy_all() -> Result<()> {
+    fn destroy_all(force: bool) -> Result<()> {
         for name in Self::get_env_list().c(d!())?.iter() {
             let env = Self::load_env_by_name(name)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?;
-
-            if env.is_protected {
-                print_msg!("This env({}) is protected, `unprotect` it first", name);
-                continue;
-            }
-
-            env.destroy().c(d!())?;
+            env.destroy(force).c(d!())?;
         }
 
         Ok(())
@@ -948,16 +941,16 @@ where
     U: CustomOps,
 {
     Create(EnvOpts<A, C>),
-    Destroy,
-    DestroyAll,
+    Destroy(bool),    // force or not
+    DestroyAll(bool), // force or not
     PushNode,
     KickNode(Option<NodeID>),
     Protect,
     Unprotect,
     Start(Option<NodeID>),
     StartAll,
-    Stop((Option<NodeID>, bool)),
-    StopAll(bool),
+    Stop((Option<NodeID>, bool)), // force or not
+    StopAll(bool),                // force or not
     Show,
     ShowAll,
     List,
