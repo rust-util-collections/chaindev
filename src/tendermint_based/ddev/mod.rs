@@ -900,7 +900,7 @@ where
 
         let cfgfile = format!("{}/config/config.toml", &home);
         let cmd = format!(
-            "{0} init --home {1} && rm -f {1}/config/addrbook.json",
+            "chmod +x {0} && {0} init --home {1} && rm -f {1}/config/addrbook.json",
             &self.meta.tendermint_bin, &home
         );
         let mut cfg = remote
@@ -1147,7 +1147,7 @@ where
         };
 
         cmd::exec_output(&format!(
-            "{} init --home {}",
+            "chmod +x {0} && {0} init --home {1}",
             &self.meta.tendermint_bin, &tmp_home
         ))
         .c(d!())
@@ -1376,7 +1376,8 @@ impl<P: NodePorts> Node<P> {
         let (tmvars, tmopts) = env.node_opts_generator.tendermint_opts(self, &env.meta);
         let (appvars, appopts) = env.node_opts_generator.app_opts(self, &env.meta);
         let cmd = format!(
-            "{tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 & \
+            "chmod +x {tmbin} {appbin} && \
+             {tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 & \
              {appvars} {appbin} {appopts} >>{home}/app.log 2>&1 &",
             tmbin = env.meta.tendermint_bin,
             appbin = env.meta.app_bin,

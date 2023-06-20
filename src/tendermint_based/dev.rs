@@ -487,7 +487,7 @@ where
             .c(d!())
             .or_else(|_| {
                 cmd::exec_output(&format!(
-                    "{} init --home {}",
+                    "chmod +x {0} && {0} init --home {1}",
                     &self.meta.tendermint_bin, &home
                 ))
                 .c(d!())
@@ -724,7 +724,7 @@ where
         };
 
         cmd::exec_output(&format!(
-            "{} init --home {}",
+            "chmod +x {0} && {0} init --home {1}",
             &self.meta.tendermint_bin, &tmp_home
         ))
         .c(d!())
@@ -846,7 +846,8 @@ impl<P: NodePorts> Node<P> {
                 let (appvars, appopts) =
                     env.node_opts_generator.app_opts(self, &env.meta);
                 let cmd = format!(
-                    "{tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 & \
+                    "chmod +x {tmbin} {appbin} && \
+                     {tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 & \
                      {appvars} {appbin} {appopts} >>{home}/app.log 2>&1 &",
                     tmbin = env.meta.tendermint_bin,
                     appbin = env.meta.app_bin,
