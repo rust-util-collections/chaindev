@@ -483,16 +483,12 @@ where
         fs::create_dir_all(&home).c(d!())?;
 
         let cfg_path = format!("{}/config/config.toml", &home);
-        let role_mark = match kind {
-            NodeKind::Node => "node",
-            NodeKind::Bootstrap => "bootstrap",
-        };
         let mut cfg = fs::read_to_string(&cfg_path)
             .c(d!())
             .or_else(|_| {
                 cmd::exec_output(&format!(
-                    "{} init {} --home {}",
-                    &self.meta.tendermint_bin, role_mark, &home
+                    "{} init --home {}",
+                    &self.meta.tendermint_bin, &home
                 ))
                 .c(d!())
                 .and_then(|_| fs::read_to_string(&cfg_path).c(d!()))
@@ -728,7 +724,7 @@ where
         };
 
         cmd::exec_output(&format!(
-            "{} init validator --home {}",
+            "{} init --home {}",
             &self.meta.tendermint_bin, &tmp_home
         ))
         .c(d!())

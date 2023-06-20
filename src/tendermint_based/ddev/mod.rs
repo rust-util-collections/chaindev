@@ -899,19 +899,14 @@ where
         remote.exec_cmd(&format!("mkdir -p {}", &home)).c(d!())?;
 
         let cfgfile = format!("{}/config/config.toml", &home);
-        let role_mark = match kind {
-            NodeKind::Node => "node",
-            NodeKind::Bootstrap => "bootstrap",
-        };
-
         let cmd = format!(
-            "{0} init {1} --home {2}; rm -f {2}/config/addrbook.json",
-            &self.meta.tendermint_bin, role_mark, &home
+            "{0} init --home {1} && rm -f {1}/config/addrbook.json",
+            &self.meta.tendermint_bin, &home
         );
         let mut cfg = remote
             .exec_cmd(&cmd)
-            .c(d!())
-            .and_then(|_| remote.read_file(&cfgfile).c(d!()))
+            .c(d!(cmd))
+            .and_then(|_| remote.read_file(&cfgfile).c(d!(cfgfile)))
             .and_then(|c| c.parse::<Document>().c(d!()))?;
 
         cfg["proxy_app"] = toml_value(format!(
@@ -1152,7 +1147,7 @@ where
         };
 
         cmd::exec_output(&format!(
-            "{} init validator --home {}",
+            "{} init --home {}",
             &self.meta.tendermint_bin, &tmp_home
         ))
         .c(d!())
