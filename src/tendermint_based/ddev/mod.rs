@@ -285,7 +285,7 @@ where
     where
         S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        let p = format!("{}/envs/{}/config.json", &*GLOBAL_BASE_DIR, cfg_name);
+        let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read(p) {
             Ok(d) => Ok(msgpack::from_slice(&d).c(d!())?),
             Err(e) => match e.kind() {
@@ -1244,7 +1244,7 @@ where
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
         msgpack::to_vec(self).c(d!()).and_then(|d| {
-            fs::write(format!("{}/config.json", &self.meta.home), d).c(d!())
+            fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!())
         })
     }
 

@@ -173,7 +173,7 @@ where
     where
         S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        let p = format!("{}/envs/{}/config.json", &*GLOBAL_BASE_DIR, cfg_name);
+        let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read_to_string(p) {
             Ok(d) => Ok(serde_json::from_str(&d).c(d!())?),
             Err(e) => match e.kind() {
@@ -809,7 +809,7 @@ where
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
         serde_json::to_vec_pretty(self).c(d!()).and_then(|d| {
-            fs::write(format!("{}/config.json", &self.meta.home), d).c(d!())
+            fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!())
         })
     }
 }
