@@ -42,7 +42,7 @@ impl<'a> Remote<'a> {
         let cmd = format!("ulimit -n 100000 >/dev/null 2>&1;{}", cmd);
         self.inner
             .exec_cmd(&cmd)
-            .map_err(|e| eg!(e))
+            .map_err(|e| eg!("[{}]: {}", cmd, e))
             .map(|c| String::from_utf8_lossy(&c).into_owned())
     }
 

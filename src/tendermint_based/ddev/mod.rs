@@ -37,12 +37,12 @@ macro_rules! check_errlist {
         if $errlist.is_empty() {
             Ok(())
         } else {
-            Err(eg!("{:?}", $errlist))
+            Err(eg!("{:#?}", $errlist))
         }
     }};
     (@$errlist: expr) => {{
         if !$errlist.is_empty() {
-            return Err(eg!("{:?}", $errlist));
+            return Err(eg!("{:#?}", $errlist));
         }
     }};
 }
@@ -340,44 +340,45 @@ where
             }
 
             omit!(fs::remove_dir_all(&home).c(d!()).and_then(|_| {
-                let errlist = thread::scope(|s| {
-                    opts.hosts
-                        .as_ref()
-                        .values()
-                        .map(|h| {
-                            let remote = Remote::from(h);
-                            let cmd = format!("rm -rf {}", &home);
-                            s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
+                let hdrs = opts
+                    .hosts
+                    .as_ref()
+                    .values()
+                    .map(|h| {
+                        let h = h.clone();
+                        let cmd = format!("rm -rf {}", &home);
+                        thread::spawn(move || {
+                            let remote = Remote::from(&h);
+                            info!(remote.exec_cmd(&cmd), &h.meta.addr)
                         })
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .flat_map(|h| h.join())
-                        .filter(|t| t.is_err())
-                        .collect::<Vec<_>>()
-                });
-
+                    })
+                    .collect::<Vec<_>>();
+                let errlist = hdrs
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .collect::<Vec<_>>();
                 check_errlist!(errlist)
             }));
         }
 
-        if fs::metadata(&home).is_ok()
-            || thread::scope(|s| {
-                opts.hosts
-                    .as_ref()
-                    .values()
-                    .map(|h| {
-                        let remote = Remote::from(h);
-                        let cmd = format!(r"\ls {}/*", &home);
-                        s.spawn(move || remote.exec_cmd(&cmd))
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .flat_map(|h| h.join())
-                    .collect::<Vec<_>>()
-            })
-            .iter()
-            .any(|ret| ret.is_ok())
-        {
+        let remote_exists = || {
+            let hdrs = opts
+                .hosts
+                .as_ref()
+                .values()
+                .map(|h| {
+                    let h = h.clone();
+                    let cmd = format!(r"\ls {}/*", &home);
+                    thread::spawn(move || Remote::from(&h).exec_cmd(&cmd))
+                })
+                .collect::<Vec<_>>();
+            hdrs.into_iter()
+                .flat_map(|h| h.join())
+                .any(|ret| ret.is_ok())
+        };
+
+        if fs::metadata(&home).is_ok() || remote_exists() {
             return Err(eg!("Another env with the same name exists!"));
         }
 
@@ -402,22 +403,25 @@ where
         };
 
         fs::create_dir_all(&env.meta.home).c(d!()).and_then(|_| {
-            let errlist = thread::scope(|s| {
-                env.meta
-                    .hosts
-                    .as_ref()
-                    .values()
-                    .map(|h| {
-                        let remote = Remote::from(h);
-                        let cmd = format!("mkdir -p {}", &env.meta.home);
-                        s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
+            let hdrs = env
+                .meta
+                .hosts
+                .as_ref()
+                .values()
+                .map(|h| {
+                    let h = h.clone();
+                    let cmd = format!("mkdir -p {}", &env.meta.home);
+                    thread::spawn(move || {
+                        let remote = Remote::from(&h);
+                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
                     })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .collect::<Vec<_>>()
-            });
+                })
+                .collect::<Vec<_>>();
+            let errlist = hdrs
+                .into_iter()
+                .flat_map(|h| h.join())
+                .filter(|t| t.is_err())
+                .collect::<Vec<_>>();
             check_errlist!(errlist)
         })?;
 
@@ -454,13 +458,14 @@ where
         sleep_ms!(100);
 
         let errlist = thread::scope(|s| {
-            self.meta
+            let hdrs = self
+                .meta
                 .bootstraps
                 .values()
                 .chain(self.meta.nodes.values())
                 .map(|n| s.spawn(|| n.clean().c(d!())))
-                .collect::<Vec<_>>()
-                .into_iter()
+                .collect::<Vec<_>>();
+            hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
                 .collect::<Vec<_>>()
@@ -471,7 +476,8 @@ where
         fs::remove_dir_all(&self.meta.home).c(d!())?;
 
         let errlist = thread::scope(|s| {
-            self.meta
+            let hdrs = self
+                .meta
                 .hosts
                 .as_ref()
                 .values()
@@ -482,8 +488,8 @@ where
                         info!(remote.exec_cmd(&cmd), &h.meta.addr)
                     })
                 })
-                .collect::<Vec<_>>()
-                .into_iter()
+                .collect::<Vec<_>>();
+            hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
                 .collect::<Vec<_>>()
@@ -774,11 +780,11 @@ where
         };
 
         let errlist = thread::scope(|s| {
-            nodes
+            let hdrs = nodes
                 .into_iter()
                 .map(|n| s.spawn(|| info!(n.stop(force), &n.host.addr)))
-                .collect::<Vec<_>>()
-                .into_iter()
+                .collect::<Vec<_>>();
+            hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
                 .collect::<Vec<_>>()
@@ -1058,7 +1064,6 @@ where
                 });
                 hdrs.push(hdr);
             }
-
             hdrs.into_iter()
                 .flat_map(|hdr| hdr.join())
                 .filter(|t| t.is_err())
@@ -1104,12 +1109,13 @@ where
         };
         let gen = |genesis_file: String| {
             thread::scope(|s| {
-                self.meta
+                let hdrs = self
+                    .meta
                     .nodes
                     .values()
                     .map(|n| s.spawn(|| parse(n)))
-                    .collect::<Vec<_>>()
-                    .into_iter()
+                    .collect::<Vec<_>>();
+                hdrs.into_iter()
                     .flat_map(|h| h.join())
                     .collect::<Result<Vec<_>>>()
             })
@@ -1243,9 +1249,9 @@ where
 
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
-        msgpack::to_vec(self).c(d!()).and_then(|d| {
-            fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!())
-        })
+        msgpack::to_vec(self)
+            .c(d!())
+            .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
     }
 
     // Alloc <host,ports> for a new node
@@ -1376,15 +1382,17 @@ impl<P: NodePorts> Node<P> {
         let (tmvars, tmopts) = env.node_opts_generator.tendermint_opts(self, &env.meta);
         let (appvars, appopts) = env.node_opts_generator.app_opts(self, &env.meta);
         let cmd = format!(
-            "chmod +x {tmbin} {appbin} && \
-             {tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 & \
-             {appvars} {appbin} {appopts} >>{home}/app.log 2>&1 &",
+            r#"
+             chmod +x {tmbin} {appbin} || exit 1
+             {tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 &
+             {appvars} {appbin} {appopts} >>{home}/app.log 2>&1 &
+            "#,
             tmbin = env.meta.tendermint_bin,
             appbin = env.meta.app_bin,
             home = &self.home,
         );
 
-        let outputs = Remote::from(&self.host).exec_cmd(&cmd).c(d!())?;
+        let outputs = Remote::from(&self.host).exec_cmd(&cmd).c(d!(cmd))?;
         let log = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&log).c(d!())
     }

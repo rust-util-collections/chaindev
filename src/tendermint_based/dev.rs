@@ -808,9 +808,9 @@ where
 
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
-        serde_json::to_vec_pretty(self).c(d!()).and_then(|d| {
-            fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!())
-        })
+        serde_json::to_vec_pretty(self)
+            .c(d!())
+            .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
     }
 }
 
@@ -846,9 +846,11 @@ impl<P: NodePorts> Node<P> {
                 let (appvars, appopts) =
                     env.node_opts_generator.app_opts(self, &env.meta);
                 let cmd = format!(
-                    "chmod +x {tmbin} {appbin} && \
-                     {tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 & \
-                     {appvars} {appbin} {appopts} >>{home}/app.log 2>&1 &",
+                    r#"
+                    chmod +x {tmbin} {appbin} || exit 1
+                    {tmvars} {tmbin} {tmopts} >>{home}/tendermint.log 2>&1 &
+                    {appvars} {appbin} {appopts} >>{home}/app.log 2>&1 &
+                    "#,
                     tmbin = env.meta.tendermint_bin,
                     appbin = env.meta.app_bin,
                     home = &self.home,
