@@ -87,6 +87,16 @@ impl<'a> Remote<'a> {
         })
     }
 
+    pub(super) fn replace_file<P: AsRef<Path>>(
+        &self,
+        remote_path: P,
+        contents: &[u8],
+    ) -> Result<()> {
+        self.inner
+            .replace_file(remote_path, contents)
+            .map_err(|e| eg!(e))
+    }
+
     pub(super) fn write_file<P: AsRef<Path>>(
         &self,
         remote_path: P,

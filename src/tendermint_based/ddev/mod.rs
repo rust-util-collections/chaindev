@@ -996,7 +996,7 @@ where
         let cfg = cfg.to_string();
 
         // 3.
-        remote.write_file(&cfgfile, cfg.as_bytes()).c(d!())?;
+        remote.replace_file(&cfgfile, cfg.as_bytes()).c(d!())?;
 
         // 4.
         let tm_id = TmConfig::parse_toml(&cfg)
@@ -1059,7 +1059,7 @@ where
                             .join(","),
                     );
                     remote
-                        .write_file(&cfgfile, cfg.to_string().as_bytes())
+                        .replace_file(&cfgfile, cfg.to_string().as_bytes())
                         .c(d!())
                 });
                 hdrs.push(hdr);
@@ -1200,7 +1200,7 @@ where
                                 .c(d!("BUG"))
                                 .and_then(|g| serde_json::to_vec_pretty(g).c(d!()))
                                 .and_then(|g| {
-                                    remote.write_file(&genesis_path, &g).c(d!())
+                                    remote.replace_file(&genesis_path, &g).c(d!())
                                 })
                         })
                 });
