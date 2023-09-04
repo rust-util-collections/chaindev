@@ -28,12 +28,21 @@ static DEFAULT_SSH_PRIVKEY_PATH: Lazy<Vec<PathBuf>> = Lazy::new(|| {
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
 pub struct HostAddr {
     pub local: String,
+    pub local_id: String,
     pub external: Option<String>,
 }
 
 impl HostAddr {
     pub fn connection_addr(&self) -> &str {
         self.external.as_deref().unwrap_or(&self.local)
+    }
+
+    pub fn connection_addr_x(&self, local_id: &str) -> &str {
+        if !self.local_id.is_empty() && self.local_id == local_id {
+            &self.local
+        } else {
+            self.connection_addr()
+        }
     }
 }
 
@@ -56,17 +65,29 @@ impl FromStr for HostAddr {
             return Err(eg!());
         }
 
+        let local = addrs[0].split('!').collect::<Vec<_>>();
+        let (local_id, local) = if 1 == local.len() {
+            ("".to_owned(), local[0].to_owned())
+        } else if 2 == local.len() {
+            (local[0].to_owned(), local[1].to_owned())
+        } else {
+            return Err(eg!());
+        };
+
         let addr = if 1 == addrs.len() {
             HostAddr {
-                local: addrs[0].to_owned(),
+                local,
+                local_id,
                 external: None,
             }
         } else {
             HostAddr {
-                local: addrs[0].to_owned(),
+                local,
+                local_id,
                 external: Some(addrs[1].to_owned()),
             }
         };
+
         Ok(addr)
     }
 }
@@ -145,10 +166,10 @@ impl AsMut<HostMap> for Hosts {
 }
 
 /// "
-///   remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   remote_host_local_id!remote_host_local_addr|remote_host_external_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
 ///   ...,
 ///   ...,
-///   remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   remote_host_local_id!remote_host_local_addr|remote_host_external_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
 ///   ...,
 /// "
 pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
@@ -252,5 +273,53 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
         Err(eg!("No valid hosts found!"))
     } else {
         Ok(ret)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn addr_parse() {
+        let text = "a!10.0.0.8|8.8.8.8";
+        assert_eq!(
+            HostAddr {
+                local: "10.0.0.8".to_owned(),
+                local_id: "a".to_owned(),
+                external: Some("8.8.8.8".to_owned())
+            },
+            HostAddr::from_str(text).unwrap()
+        );
+
+        let text = "!10.0.0.8|8.8.8.8";
+        assert_eq!(
+            HostAddr {
+                local: "10.0.0.8".to_owned(),
+                local_id: "".to_owned(),
+                external: Some("8.8.8.8".to_owned())
+            },
+            HostAddr::from_str(text).unwrap()
+        );
+
+        let text = "10.0.0.8|8.8.8.8";
+        assert_eq!(
+            HostAddr {
+                local: "10.0.0.8".to_owned(),
+                local_id: "".to_owned(),
+                external: Some("8.8.8.8".to_owned())
+            },
+            HostAddr::from_str(text).unwrap()
+        );
+
+        let text = "a10.0.0.8|8.8.8.8";
+        assert_eq!(
+            HostAddr {
+                local: "a10.0.0.8".to_owned(),
+                local_id: "".to_owned(),
+                external: Some("8.8.8.8".to_owned())
+            },
+            HostAddr::from_str(text).unwrap()
+        );
     }
 }

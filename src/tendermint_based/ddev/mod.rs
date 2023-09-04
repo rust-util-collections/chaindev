@@ -1046,13 +1046,13 @@ where
                             .nodes
                             .values()
                             .chain(self.meta.bootstraps.values())
-                            .filter(|peer| peer.id != n.id)
-                            .map(|n| {
+                            .filter(|p| p.id != n.id)
+                            .map(|p| {
                                 format!(
                                     "{}@{}:{}",
-                                    &n.tm_id,
-                                    n.host.addr.connection_addr(),
-                                    n.ports.get_sys_p2p()
+                                    &p.tm_id,
+                                    p.host.addr.connection_addr_x(&n.host.addr.local_id),
+                                    p.ports.get_sys_p2p()
                                 )
                             })
                             .collect::<Vec<_>>()
