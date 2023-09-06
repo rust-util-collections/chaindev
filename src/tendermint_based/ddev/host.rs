@@ -166,10 +166,10 @@ impl AsMut<HostMap> for Hosts {
 }
 
 /// "
-///   remote_host_local_id!remote_host_local_addr|remote_host_external_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   remote_host_local_id%remote_host_local_addr|remote_host_external_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
 ///   ...,
 ///   ...,
-///   remote_host_local_id!remote_host_local_addr|remote_host_external_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
+///   remote_host_local_id%remote_host_local_addr|remote_host_external_addr#ssh_user#ssh_remote_port#weight#ssh_local_privkey,
 ///   ...,
 /// "
 pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
@@ -282,7 +282,7 @@ mod test {
 
     #[test]
     fn addr_parse() {
-        let text = "a!10.0.0.8|8.8.8.8";
+        let text = "a%10.0.0.8|8.8.8.8";
         assert_eq!(
             HostAddr {
                 local: "10.0.0.8".to_owned(),
@@ -292,7 +292,7 @@ mod test {
             HostAddr::from_str(text).unwrap()
         );
 
-        let text = "!10.0.0.8|8.8.8.8";
+        let text = "%10.0.0.8|8.8.8.8";
         assert_eq!(
             HostAddr {
                 local: "10.0.0.8".to_owned(),
