@@ -138,7 +138,7 @@ pub enum BlockItv {
 }
 
 impl BlockItv {
-    pub(crate) fn to_millisecond(self) -> Result<u32> {
+    pub fn to_millisecond(self) -> Result<u32> {
         const ITV_MAX: u16 = u16::MAX;
         match self {
             Self::Int(i) => Ok((i as u32) * 1000),
