@@ -221,7 +221,7 @@ pub(super) fn get_file_from_hosts(
     } else {
         "/tmp"
     };
-    let remote_path = PathBuf::try_from(remote_path).c(d!())?;
+    let remote_path = PathBuf::from(remote_path);
     let remote_file = remote_path.file_name().c(d!())?.to_str().c(d!())?;
     let remote_path = &remote_path;
 

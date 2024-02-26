@@ -1327,7 +1327,7 @@ where
         if !matches!(node_kind, NodeKind::Node)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved.iter().all(|hp| !PC.contains(hp))
-            && reserved_ports.iter().all(|p| port_is_free(p))
+            && reserved_ports.iter().all(port_is_free)
         {
             res = reserved_ports;
         } else {
