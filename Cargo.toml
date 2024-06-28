@@ -1,6 +1,6 @@
 [package]
 name = "chaindev"
-version = "0.30.0"
+version = "0.31.0"
 edition = "2021"
 authors = ["hui.fan@mail.ru"]
 description = "Powerful development and testing utils for blockchain developers."
@@ -12,21 +12,21 @@ license = "GPL-3.0"
 # build = "build.rs"
 
 [dependencies]
-nix = "0.26.1"
-toml_edit = "0.19.6"
-rand = "0.8.5"
-once_cell = "1.17.0"
-parking_lot = "0.12.1"
+nix = { version = "0.29", features = ["net", "process", "user", "hostname"] }
+toml_edit = "0.22"
+rand = "0.8"
+once_cell = "1.18"
+parking_lot = "0.12"
 
-serde = { version = "1.0.148", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
 msgpack = { package = "rmp-serde", version = "1.1.1" }
-serde_json = "1.0.89"
+serde_json = "1.0"
 
-ruc = { version = "5.1.2", features = ["cmd","ssh"] }
-vsdb = { version = "0.62.0", default-features = false }
+ruc = { version = "6.0", features = ["cmd","ssh"] }
+vsdb = { version = "1.0", default-features = false }
 
-tendermint = { version = "0.29.1", optional = true }
-tendermint-config = { version = "0.29.1", optional = true }
+tendermint = { version = "0.37", optional = true }
+tendermint-config = { version = "0.37", optional = true }
 
 [features]
 default = ["tendermint_based", "vsdb_msgpack_codec", "vsdb_compress", "vsdb_rocks_backend"]
@@ -34,9 +34,8 @@ default = ["tendermint_based", "vsdb_msgpack_codec", "vsdb_compress", "vsdb_rock
 substrate_based = []
 tendermint_based = ["tendermint","tendermint-config"]
 
-vsdb_bcs_codec = ["vsdb/bcs_codec"]
-vsdb_json_codec = ["vsdb/json_codec"]
 vsdb_msgpack_codec = ["vsdb/msgpack_codec"]
+vsdb_json_codec = ["vsdb/json_codec"]
 
 vsdb_rocks_backend = ["vsdb/rocks_backend"]
 vsdb_compress = ["vsdb/compress"]

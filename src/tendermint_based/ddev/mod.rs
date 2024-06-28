@@ -23,7 +23,7 @@ use tendermint::{validator::Info as TmValidator, vote::Power as TmPower, Genesis
 use tendermint_config::{
     NodeKey, PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
 };
-use toml_edit::{value as toml_value, Array, Document};
+use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 use vsdb::MapxOrd;
 
 pub use super::common::*;
@@ -923,14 +923,14 @@ where
 
         let remote_os = remote.hosts_os().c(d!())?;
         match remote_os {
-            HostOS::Linux | HostOS::MacOS => {
+            HostOS::Linux | HostOS::MacOS | HostOS::FreeBSD => {
                 cfg["rpc"]["laddr"] = toml_value(format!(
                     "tcp://{}:{}",
                     &host.addr.local,
                     ports.get_sys_rpc()
                 ));
             }
-            _ => return Err(eg!("Unsupported OS: {:?}!", remote_os)),
+            HostOS::Unknown(os) => return Err(eg!("Unsupported OS: {}!", os)),
         }
 
         let mut arr = Array::new();

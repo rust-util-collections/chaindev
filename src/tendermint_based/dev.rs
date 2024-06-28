@@ -18,6 +18,7 @@ use std::{
     fmt,
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
+    os::unix::io::AsRawFd,
     path::PathBuf,
     process::{exit, Command, Stdio},
     str::FromStr,
@@ -26,7 +27,7 @@ use tendermint::{validator::Info as TmValidator, vote::Power as TmPower, Genesis
 use tendermint_config::{
     PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
 };
-use toml_edit::{value as toml_value, Array, Document};
+use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 
 pub use super::common::*;
 
@@ -1005,11 +1006,13 @@ fn check_port(port: u16) -> Result<()> {
     let check = |st: SockType| {
         let fd = socket(AddressFamily::Inet, st, SockFlag::empty(), None).c(d!())?;
 
-        setsockopt(fd, sockopt::ReuseAddr, &true)
+        setsockopt(&fd, sockopt::ReuseAddr, &true)
             .c(d!())
-            .and_then(|_| setsockopt(fd, sockopt::ReusePort, &true).c(d!()))
-            .and_then(|_| socket::bind(fd, &SockaddrIn::new(0, 0, 0, 0, port)).c(d!()))
-            .and_then(|_| unistd::close(fd).c(d!()))
+            .and_then(|_| setsockopt(&fd, sockopt::ReusePort, &true).c(d!()))
+            .and_then(|_| {
+                socket::bind(fd.as_raw_fd(), &SockaddrIn::new(0, 0, 0, 0, port)).c(d!())
+            })
+            .and_then(|_| unistd::close(fd.as_raw_fd()).c(d!()))
     };
 
     for st in [SockType::Datagram, SockType::Stream].into_iter() {
