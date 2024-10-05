@@ -33,9 +33,8 @@ static GLOBAL_BASE_DIR: LazyLock<String> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvCfg<A, C, P, U>
+pub struct EnvCfg<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
@@ -44,12 +43,11 @@ where
     pub name: EnvName,
 
     /// Which operation to trigger/call
-    pub op: Op<A, C, P, U>,
+    pub op: Op<C, P, U>,
 }
 
-impl<A, C, P, U> EnvCfg<A, C, P, U>
+impl<C, P, U> EnvCfg<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
@@ -221,9 +219,8 @@ where
 {
     // - Initilize a new env
     // - Create `genesis.json`
-    fn create<A, U>(cfg: &EnvCfg<A, C, P, U>, opts: &EnvOpts<A, C>, s: S) -> Result<()>
+    fn create<U>(cfg: &EnvCfg<C, P, U>, opts: &EnvOpts<C>, s: S) -> Result<()>
     where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         U: CustomOps,
     {
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
@@ -275,7 +272,7 @@ where
             add_initial_nodes!(ArchiveNode);
         }
 
-        env.gen_genesis(&opts.app_state)
+        env.gen_genesis(&opts.egg_path)
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
             .and_then(|_| env.start(None).c(d!()))
@@ -547,10 +544,7 @@ where
 
     // TODO
     // call `egg` to generate the genesis data
-    fn gen_genesis<A>(&mut self, app_state: &A) -> Result<()>
-    where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    {
+    fn gen_genesis(&mut self, egg_path: &str) -> Result<()> {
         todo!()
     }
 
@@ -583,9 +577,8 @@ where
         EnvMeta::<C, Node<P>>::get_env_list().c(d!())
     }
 
-    fn load_env_by_cfg<A, U>(cfg: &EnvCfg<A, C, P, U>) -> Result<Env<C, P, S>>
+    fn load_env_by_cfg<U>(cfg: &EnvCfg<C, P, U>) -> Result<Env<C, P, S>>
     where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         U: CustomOps,
     {
         Self::load_env_by_name(&cfg.name)
@@ -736,14 +729,13 @@ pub enum NodeKind {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub enum Op<A, C, P, U>
+pub enum Op<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
 {
-    Create(EnvOpts<A, C>),
+    Create(EnvOpts<C>),
     Destroy(bool),    // force or not
     DestroyAll(bool), // force or not
     PushNode(bool),   // require an archive node or not
@@ -764,9 +756,8 @@ where
 /// Options specified with the create operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvOpts<A, C>
+pub struct EnvOpts<C>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
     /// Default to '127.0.0.1'
@@ -787,7 +778,9 @@ where
 
     pub force_create: bool,
 
-    pub app_state: A,
+    // Ethereum Genesis Generator
+    pub egg_path: String,
+
     pub custom_data: C,
 }
 
