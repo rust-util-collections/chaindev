@@ -84,7 +84,7 @@ where
                 .and_then(|mut env| env.unprotect().c(d!())),
             Op::Start(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.start(*node_id).c(d!())),
+                .and_then(|mut env| env.launch(*node_id).c(d!())),
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
             Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
@@ -261,7 +261,7 @@ where
         env.gen_genesis(&opts.egg_path)
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.start(None).c(d!()))
+            .and_then(|_| env.start().c(d!()))
     }
 
     // Destroy all nodes
@@ -314,7 +314,7 @@ where
         self.alloc_resources(id, kind)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.start(Some(id)).c(d!()))
+            .and_then(|_| self.start_node(id).c(d!()))
     }
 
     // The bootstrap node should not be removed
@@ -356,8 +356,18 @@ where
         self.write_cfg().c(d!())
     }
 
+    #[inline(always)]
+    fn start(&mut self) -> Result<()> {
+        self.launch(None).c(d!())
+    }
+
+    #[inline(always)]
+    fn start_node(&mut self, n: NodeID) -> Result<()> {
+        self.launch(Some(n)).c(d!())
+    }
+
     // Start one or all nodes
-    fn start(&mut self, n: Option<NodeID>) -> Result<()> {
+    fn launch(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .bootstraps
@@ -393,7 +403,7 @@ where
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .start(None)
+                .start()
                 .c(d!())?;
         }
         Ok(())
