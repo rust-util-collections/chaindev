@@ -1,0 +1,49 @@
+[package]
+name = "chaindev"
+version = "0.33.0"
+edition = "2021"
+authors = ["hui.fan@mail.ru"]
+description = "Powerful development and testing utils for blockchain developers."
+homepage = "https://github.com/rust-util-collections/chaindev"
+repository = "https://github.com/rust-util-collections/chaindev"
+keywords = ["blockchain", "tendermint", "substrate", "development"]
+license = "GPL-3.0"
+
+# build = "build.rs"
+
+[dependencies]
+nix = { version = "0.29", features = ["net", "process", "user", "hostname"] }
+toml_edit = "0.22"
+rand = "0.8"
+parking_lot = "0.12"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+ruc = { version = "6.0.1", features = ["cmd","ssh"] }
+vsdb = { version = "1.0.2", default-features = false }
+
+tendermint = { version = "0.37", optional = true }
+tendermint-config = { version = "0.37", optional = true }
+
+[features]
+default = [
+    "beacon_based",
+    "tendermint_based",
+    "vsdb_msgpack_codec",
+    "vsdb_compress",
+    "vsdb_rocks_backend"
+]
+
+beacon_based = ["tendermint","tendermint-config"] # TODO remove mock deps!
+tendermint_based = ["tendermint","tendermint-config"]
+
+vsdb_msgpack_codec = ["vsdb/msgpack_codec"]
+vsdb_json_codec = ["vsdb/json_codec"]
+
+vsdb_rocks_backend = ["vsdb/rocks_backend"]
+vsdb_compress = ["vsdb/compress"]
+
+[patch.crates-io]
+# ruc = { path = "../ruc" }
+# vsdb = { path = "../vsdb/wrappers" }
