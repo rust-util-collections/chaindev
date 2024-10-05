@@ -78,11 +78,14 @@ pub trait NodePorts:
     }
 }
 
-pub trait NodeCmdlineGenerator<N, E>:
+pub trait NodeCmdGenerator<N, E>:
     Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
 {
-    /// Return: the final generated cmdline(execution commands)
-    fn cmdline(&self, node: &N, env_meta: &E) -> String;
+    /// Return: the custom cmd to start the node
+    fn cmd_for_start(&self, node: &N, env_meta: &E) -> String;
+
+    /// Return: the custom cmd to stop the node
+    fn cmd_for_stop(&self, node: &N, env_meta: &E, force: bool) -> String;
 
     /// Return: whether the target node is running.
     fn is_running(&self, node: &N, env_meta: &E) -> Result<bool>;

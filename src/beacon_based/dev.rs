@@ -1,5 +1,5 @@
 //!
-//! Localhost version.
+//! Localhost version
 //!
 
 #![allow(warnings)]
@@ -55,7 +55,7 @@ where
     pub fn exec<S>(&self, s: S) -> Result<()>
     where
         P: NodePorts,
-        S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
             Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
@@ -127,7 +127,7 @@ where
 
     pub nodes: BTreeMap<NodeID, N>,
 
-    /// The genesis tar package, gzip compressed.
+    /// The genesis tar package, gzip compressed
     #[serde(rename = "genesis_collections")]
     pub genesis: Option<GenesisTgz>,
 
@@ -164,7 +164,7 @@ where
 
     pub fn load_env_by_name<S>(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>>
     where
-        S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read_to_string(p) {
@@ -190,20 +190,20 @@ pub struct Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     pub meta: EnvMeta<C, Node<P>>,
     pub is_protected: bool,
 
     #[serde(rename = "node_options_generator")]
-    pub node_cmdline_generator: S,
+    pub node_cmd_generator: S,
 }
 
 impl<C, P, S> Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     // - Initilize a new env
     // - Create `genesis.json`
@@ -237,7 +237,7 @@ where
                 next_node_id: Default::default(),
             },
             is_protected: true,
-            node_cmdline_generator: s,
+            node_cmd_generator: s,
         };
 
         fs::create_dir_all(&env.meta.home).c(d!())?;
@@ -271,7 +271,12 @@ where
             ));
         }
 
+        // DO NOT USE `node.destroy(...)` here,
+        // we should NOT wait 100ms for every node,
+        // once is enough!
         info_omit!(self.stop(None, true));
+
+        // Wait all nodes to be actually stopped
         sleep_ms!(100);
 
         for n in self
@@ -280,7 +285,7 @@ where
             .values()
             .chain(self.meta.nodes.values())
         {
-            n.clean().c(d!())?;
+            n.clean_up().c(d!())?;
         }
 
         fs::remove_dir_all(&self.meta.home).c(d!())
@@ -333,7 +338,7 @@ where
             .nodes
             .remove(&id)
             .c(d!("Node ID does not exist?"))
-            .and_then(|n| n.stop(true).c(d!()).and_then(|_| n.clean().c(d!())))
+            .and_then(|n| n.destroy(self).c(d!()))
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
@@ -392,7 +397,12 @@ where
 
     // - Stop all processes
     // - Release all occupied ports
+    #[inline(always)]
     fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
+        self.kill(n, force, false).c(d!())
+    }
+
+    fn kill(&self, n: Option<NodeID>, force: bool, destroy: bool) -> Result<()> {
         let mut nodes = self
             .meta
             .bootstraps
@@ -407,7 +417,7 @@ where
 
         nodes
             .into_iter()
-            .map(|n| n.stop(force).c(d!()))
+            .map(|n| alt!(destroy, n.destroy(self), n.stop(self, force)).c(d!()))
             .collect::<Result<Vec<_>>>()
             .map(|_| ())
     }
@@ -459,7 +469,7 @@ where
 
     // TODO
     // 1. Allocate ports
-    // 2. Change configs: ports, bootstrap address, etc.
+    // 2. Change configs: ports, bootstrap address, etc
     // 3. Insert new node to the meta of env
     // 4. Write new configs of beacon to disk
     fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
@@ -605,19 +615,15 @@ impl<P: NodePorts> Node<P> {
     fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
     where
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if env
-            .node_cmdline_generator
-            .is_running(self, &env.meta)
-            .c(d!())?
-        {
+        if env.node_cmd_generator.is_running(self, &env.meta).c(d!())? {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
         }
 
         match unsafe { unistd::fork() } {
             Ok(ForkResult::Child) => {
-                let cmd = env.node_cmdline_generator.cmdline(self, &env.meta);
+                let cmd = env.node_cmd_generator.cmd_for_start(self, &env.meta);
                 pnk!(self.write_dev_log(&cmd));
                 pnk!(exec_spawn(&cmd));
                 exit(0);
@@ -627,22 +633,31 @@ impl<P: NodePorts> Node<P> {
         }
     }
 
-    fn stop(&self, force: bool) -> Result<()> {
-        let cmd = format!(
-            "for i in \
-                $(ps ax -o pid,args \
-                    | grep '{}' \
-                    | grep -v 'grep' \
-                    | grep -Eo '^ *[0-9]+' \
-                    | sed 's/ //g' \
-                ); \
-             do kill {} $i; done",
-            &self.home,
-            alt!(force, "-9", ""),
-        );
+    fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
+    where
+        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
+        let cmd = env.node_cmd_generator.cmd_for_stop(self, &env.meta, force);
         let outputs = cmd::exec_output(&cmd).c(d!())?;
         let contents = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&contents).c(d!())
+    }
+
+    // - Stop the node
+    // - Release all occupied ports
+    // - Remove all files related to this node
+    fn destroy<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
+    where
+        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
+        self.stop(env, true).c(d!())?;
+
+        // Wait the node to be actually stopped
+        sleep_ms!(100);
+
+        self.clean_up().c(d!())
     }
 
     fn write_dev_log(&self, cmd: &str) -> Result<()> {
@@ -662,7 +677,7 @@ impl<P: NodePorts> Node<P> {
 
     // - Release all occupied ports
     // - Remove all files related to this node
-    fn clean(&self) -> Result<()> {
+    fn clean_up(&self) -> Result<()> {
         for port in self.ports.get_port_list().into_iter() {
             PortsCache::remove(port).c(d!())?;
         }
@@ -717,7 +732,7 @@ where
     pub block_itv_secs: BlockItv,
 
     /// How many initial nodes should be created,
-    /// default to 4(include the bootstrap node).
+    /// default to 4(include the bootstrap node)
     pub initial_node_num: u8,
 
     pub force_create: bool,
