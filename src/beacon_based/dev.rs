@@ -243,15 +243,19 @@ where
         fs::create_dir_all(&env.meta.home).c(d!())?;
 
         macro_rules! add_initial_nodes {
-            ($kind: tt) => {{
+            ($kind: expr) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, NodeKind::$kind).c(d!())?;
+                env.alloc_resources(id, $kind).c(d!())?;
             }};
         }
 
-        add_initial_nodes!(Bootstrap);
+        add_initial_nodes!(NodeKind::Bootstrap);
         for _ in 0..opts.initial_node_num {
-            add_initial_nodes!(ArchiveNode);
+            add_initial_nodes!(alt!(
+                opts.initial_nodes_archive,
+                NodeKind::ArchiveNode,
+                NodeKind::FullNode
+            ));
         }
 
         env.gen_genesis(&opts.egg_path)
@@ -735,12 +739,20 @@ where
     /// default to 4(include the bootstrap node)
     pub initial_node_num: u8,
 
-    pub force_create: bool,
+    #[serde(default = "initial_nodes_archive_default")]
+    pub initial_nodes_archive: bool,
 
     // Ethereum Genesis Generator
     pub egg_path: String,
 
     pub custom_data: C,
+
+    pub force_create: bool,
+}
+
+#[inline(always)]
+fn initial_nodes_archive_default() -> bool {
+    true
 }
 
 fn port_is_free(port: u16) -> bool {
