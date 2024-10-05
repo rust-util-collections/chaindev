@@ -32,7 +32,7 @@ use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 pub use super::common::*;
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
-    LazyLock::new(|| format!("{}/__DEV__", &*BASE_DIR));
+    LazyLock::new(|| format!("{}/__dev__", &*BASE_DIR));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]

@@ -277,7 +277,7 @@ where
 
         // DO NOT USE `node.destroy(...)` here,
         // we should NOT wait 100ms for every node,
-        // once is enough!
+        // one time is enough!
         info_omit!(self.stop(None, true));
 
         // Wait all nodes to be actually stopped
@@ -300,7 +300,7 @@ where
         for name in Self::get_env_list().c(d!())?.iter() {
             let env = Self::load_env_by_name(name)
                 .c(d!())?
-                .c(d!("BUG: env not found!"))?;
+                .c(d!("BUG: env recorded but not found !!"))?;
             env.destroy(force).c(d!())?;
         }
 
@@ -317,7 +317,8 @@ where
             .and_then(|_| self.start_node(id).c(d!()))
     }
 
-    // The bootstrap node should not be removed
+    // Kick out a target node, or a randomly selected one,
+    // NOTE: the bootstrap node will never be kicked
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
@@ -341,7 +342,7 @@ where
         self.meta
             .nodes
             .remove(&id)
-            .c(d!("Node ID does not exist?"))
+            .c(d!("Node id does not exist?"))
             .and_then(|n| n.destroy(self).c(d!()))
             .and_then(|_| self.write_cfg().c(d!()))
     }
@@ -366,7 +367,7 @@ where
         self.launch(Some(n)).c(d!())
     }
 
-    // Start one or all nodes
+    // Start one or all nodes of the ENV
     fn launch(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
@@ -413,10 +414,6 @@ where
     // - Release all occupied ports
     #[inline(always)]
     fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
-        self.kill(n, force, false).c(d!())
-    }
-
-    fn kill(&self, n: Option<NodeID>, force: bool, destroy: bool) -> Result<()> {
         let mut nodes = self
             .meta
             .bootstraps
@@ -431,7 +428,7 @@ where
 
         nodes
             .into_iter()
-            .map(|n| alt!(destroy, n.destroy(self), n.stop(self, force)).c(d!()))
+            .map(|n| n.stop(self, force).c(d!()))
             .collect::<Result<Vec<_>>>()
             .map(|_| ())
     }
