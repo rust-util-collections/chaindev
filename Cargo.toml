@@ -13,18 +13,20 @@ license = "GPL-3.0"
 
 [dependencies]
 nix = { version = "0.29", features = ["net", "process", "user", "hostname"] }
-toml_edit = "0.22"
 rand = "0.8"
 parking_lot = "0.12"
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yml = "0.0.12"
 
-ruc = { version = "6.0.1", features = ["cmd","ssh"] }
+ruc = { version = "6.1.0", features = ["cmd","ssh"] }
 vsdb = { version = "1.0.2", default-features = false }
 
 tendermint = { version = "0.37", optional = true }
 tendermint-config = { version = "0.37", optional = true }
+
+toml_edit = { version = "0.22", optional = true }
 
 [features]
 default = [
@@ -35,8 +37,9 @@ default = [
     "vsdb_rocks_backend"
 ]
 
-beacon_based = ["tendermint","tendermint-config"] # TODO remove mock deps!
-tendermint_based = ["tendermint","tendermint-config"]
+beacon_based = []
+
+tendermint_based = ["tendermint","tendermint-config","toml_edit"]
 
 vsdb_msgpack_codec = ["vsdb/msgpack_codec"]
 vsdb_json_codec = ["vsdb/json_codec"]

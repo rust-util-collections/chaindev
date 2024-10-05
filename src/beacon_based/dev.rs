@@ -1,8 +1,6 @@
 //!
-//! Localhost version.
+//! Localhost version
 //!
-
-#![allow(warnings)]
 
 use nix::{
     sys::socket::{
@@ -12,7 +10,6 @@ use nix::{
 };
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use std::{
     collections::BTreeMap,
     collections::BTreeSet,
@@ -20,22 +17,19 @@ use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
     os::unix::io::AsRawFd,
-    path::PathBuf,
     process::{exit, Command, Stdio},
     sync::LazyLock,
 };
-use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 
 pub use super::common::*;
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
-    LazyLock::new(|| format!("{}/__DEV__", &*BASE_DIR));
+    LazyLock::new(|| format!("{}/__dev__", &*BASE_DIR));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvCfg<A, C, P, U>
+pub struct EnvCfg<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
@@ -44,12 +38,11 @@ where
     pub name: EnvName,
 
     /// Which operation to trigger/call
-    pub op: Op<A, C, P, U>,
+    pub op: Op<C, P, U>,
 }
 
-impl<A, C, P, U> EnvCfg<A, C, P, U>
+impl<C, P, U> EnvCfg<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
@@ -57,7 +50,7 @@ where
     pub fn exec<S>(&self, s: S) -> Result<()>
     where
         P: NodePorts,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
             Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
@@ -86,7 +79,7 @@ where
                 .and_then(|mut env| env.unprotect().c(d!())),
             Op::Start(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.start(*node_id).c(d!())),
+                .and_then(|mut env| env.launch(*node_id).c(d!())),
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
             Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
@@ -120,30 +113,33 @@ where
 
     pub host_ip: String,
 
-    #[serde(rename = "app_bin")]
-    pub app_bin: String,
-    pub app_extra_opts: String,
-
-    #[serde(rename = "beacon_bin")]
-    pub bn_bin: String,
-    pub bn_extra_opts: String,
-
-    #[serde(rename = "validator_bin")]
-    pub vc_bin: String,
-    pub vc_extra_opts: String,
-
     /// Seconds between two blocks
     #[serde(rename = "block_interval_in_seconds")]
-    pub block_itv_secs: BlockItv,
+    pub block_itv: BlockItv,
 
+    /// The contents of a EGG custom.env,
+    ///
+    /// Format:
+    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    #[serde(default)]
+    pub genesis_custom_settings: String,
+
+    /// The network cfg files,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis: Vec<u8>,
+
+    /// The initial validator keys,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis_vkeys: Vec<u8>,
+
+    /// The first Bootstrap node
+    /// will be treated as the genesis node
     #[serde(rename = "bootstrap_nodes")]
     pub bootstraps: BTreeMap<NodeID, N>,
 
     pub nodes: BTreeMap<NodeID, N>,
-
-    /// The genesis tar package, gzip compressed.
-    #[serde(rename = "genesis_collections")]
-    pub genesis: Option<GenesisTgz>,
 
     pub custom_data: C,
 
@@ -178,7 +174,7 @@ where
 
     pub fn load_env_by_name<S>(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>>
     where
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read_to_string(p) {
@@ -204,26 +200,25 @@ pub struct Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     pub meta: EnvMeta<C, Node<P>>,
     pub is_protected: bool,
 
     #[serde(rename = "node_options_generator")]
-    pub node_opts_generator: S,
+    pub node_cmd_generator: S,
 }
 
 impl<C, P, S> Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     // - Initilize a new env
     // - Create `genesis.json`
-    fn create<A, U>(cfg: &EnvCfg<A, C, P, U>, opts: &EnvOpts<A, C>, s: S) -> Result<()>
+    fn create<U>(cfg: &EnvCfg<C, P, U>, opts: &EnvOpts<C>, s: S) -> Result<()>
     where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         U: CustomOps,
     {
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
@@ -239,46 +234,58 @@ where
             return Err(eg!("Another env with the same name exists!"));
         }
 
+        let genesis = if let Some(p) = opts.genesis_tgz_path.as_deref() {
+            fs::read(p).c(d!())?
+        } else {
+            vec![]
+        };
+
+        let genesis_vkeys = if let Some(p) = opts.genesis_vkeys_tgz_path.as_deref() {
+            fs::read(p).c(d!())?
+        } else {
+            vec![]
+        };
+
         let mut env = Env {
             meta: EnvMeta {
                 name: cfg.name.clone(),
                 home,
                 host_ip: opts.host_ip.clone(),
-                app_bin: opts.app_bin.clone(),
-                app_extra_opts: opts.app_extra_opts.clone(),
-                bn_bin: opts.bn_bin.clone(),
-                bn_extra_opts: opts.bn_extra_opts.clone(),
-                vc_bin: opts.bn_bin.clone(),
-                vc_extra_opts: opts.bn_extra_opts.clone(),
-                block_itv_secs: opts.block_itv_secs,
+                block_itv: opts.block_itv,
+                genesis_custom_settings: opts.genesis_custom_settings.clone(),
+                genesis,
+                genesis_vkeys,
                 nodes: Default::default(),
                 bootstraps: Default::default(),
-                genesis: None,
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
             is_protected: true,
-            node_opts_generator: s,
+            node_cmd_generator: s,
         };
 
         fs::create_dir_all(&env.meta.home).c(d!())?;
 
         macro_rules! add_initial_nodes {
-            ($kind: tt) => {{
+            ($kind: expr) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, NodeKind::$kind).c(d!())?;
+                env.alloc_resources(id, $kind).c(d!())?;
             }};
         }
 
-        add_initial_nodes!(Bootstrap);
-        for _ in 0..opts.initial_validator_num {
-            add_initial_nodes!(ArchiveNode);
+        add_initial_nodes!(NodeKind::Bootstrap);
+        for _ in 0..opts.initial_node_num {
+            add_initial_nodes!(alt!(
+                opts.initial_nodes_archive_mode,
+                NodeKind::ArchiveNode,
+                NodeKind::FullNode
+            ));
         }
 
-        env.gen_genesis(&opts.app_state)
+        env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.start(None).c(d!()))
+            .and_then(|_| env.start().c(d!()))
     }
 
     // Destroy all nodes
@@ -292,7 +299,12 @@ where
             ));
         }
 
+        // DO NOT USE `node.destroy(...)` here,
+        // we should NOT wait 100ms for every node,
+        // one time is enough!
         info_omit!(self.stop(None, true));
+
+        // Wait all nodes to be actually stopped
         sleep_ms!(100);
 
         for n in self
@@ -301,7 +313,7 @@ where
             .values()
             .chain(self.meta.nodes.values())
         {
-            n.clean().c(d!())?;
+            n.clean_up().c(d!())?;
         }
 
         fs::remove_dir_all(&self.meta.home).c(d!())
@@ -312,7 +324,7 @@ where
         for name in Self::get_env_list().c(d!())?.iter() {
             let env = Self::load_env_by_name(name)
                 .c(d!())?
-                .c(d!("BUG: env not found!"))?;
+                .c(d!("BUG: env recorded but not found !!"))?;
             env.destroy(force).c(d!())?;
         }
 
@@ -326,10 +338,11 @@ where
         self.alloc_resources(id, kind)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.start(Some(id)).c(d!()))
+            .and_then(|_| self.start_node(id).c(d!())) // .and_then(|_| self.write_cfg().c(d!()))
     }
 
-    // The bootstrap node should not be removed
+    // Kick out a target node, or a randomly selected one,
+    // NOTE: the bootstrap node will never be kicked
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
@@ -353,8 +366,8 @@ where
         self.meta
             .nodes
             .remove(&id)
-            .c(d!("Node ID does not exist?"))
-            .and_then(|n| n.stop(true).c(d!()).and_then(|_| n.clean().c(d!())))
+            .c(d!("Node id does not exist?"))
+            .and_then(|n| n.destroy(self).c(d!()))
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
@@ -368,8 +381,18 @@ where
         self.write_cfg().c(d!())
     }
 
-    // Start one or all nodes
-    fn start(&mut self, n: Option<NodeID>) -> Result<()> {
+    #[inline(always)]
+    fn start(&mut self) -> Result<()> {
+        self.launch(None).c(d!())
+    }
+
+    #[inline(always)]
+    fn start_node(&mut self, n: NodeID) -> Result<()> {
+        self.launch(Some(n)).c(d!())
+    }
+
+    // Start one or all nodes of the ENV
+    fn launch(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .bootstraps
@@ -405,7 +428,7 @@ where
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .start(None)
+                .start()
                 .c(d!())?;
         }
         Ok(())
@@ -413,6 +436,7 @@ where
 
     // - Stop all processes
     // - Release all occupied ports
+    #[inline(always)]
     fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
         let mut nodes = self
             .meta
@@ -428,7 +452,7 @@ where
 
         nodes
             .into_iter()
-            .map(|n| n.stop(force).c(d!()))
+            .map(|n| n.stop(self, force).c(d!()))
             .collect::<Result<Vec<_>>>()
             .map(|_| ())
     }
@@ -478,13 +502,30 @@ where
         Ok(())
     }
 
-    // TODO
     // 1. Allocate ports
-    // 2. Change configs: ports, bootstrap address, etc.
-    // 3. Insert new node to the meta of env
-    // 4. Write new configs of beacon to disk
+    // 2. Record the node in its ENV meta
     fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
-        todo!()
+        // 1.
+        let ports = self.alloc_ports(&kind).c(d!())?;
+
+        // 2.
+        let node = Node {
+            id,
+            home: format!("{}/{}", &self.meta.home, id),
+            kind,
+            ports,
+        };
+
+        match kind {
+            NodeKind::FullNode | NodeKind::ArchiveNode => {
+                self.meta.nodes.insert(id, node)
+            }
+            NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
+        };
+
+        // self.write_cfg().c(d!())
+
+        Ok(())
     }
 
     // Global alloctor for ports
@@ -521,20 +562,9 @@ where
         P::try_create(&res).c(d!())
     }
 
-    // TODO
-    // randomly select some nodes:
-    //   - update bootnodes for all clients
-    //   - update trusted peers for lighthouse and reth
+    // fix me ?
+    #[inline(always)]
     fn update_peer_cfg(&self) -> Result<()> {
-        for n in self
-            .meta
-            .nodes
-            .values()
-            .chain(self.meta.bootstraps.values())
-        {
-            todo!()
-        }
-
         Ok(())
     }
 
@@ -545,34 +575,114 @@ where
         ret
     }
 
-    // TODO
-    // call `egg` to generate the genesis data
-    fn gen_genesis<A>(&mut self, app_state: &A) -> Result<()>
-    where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    {
-        todo!()
+    /// If no genesis data set,
+    /// build from scratch using [EGG](https://github.com/NBnet/EGG)
+    fn gen_genesis(&mut self) -> Result<()> {
+        let tmpdir = format!("/tmp/egg_{}_{}", ts!(), rand::random::<u16>());
+        omit!(fs::remove_dir_all(&tmpdir));
+        fs::create_dir_all(&tmpdir).c(d!())?;
+
+        if self.meta.genesis.is_empty() {
+            // clone repo
+            // custom cfg, eg. block itv
+            // build genesis data
+            // set generated data to ENV
+
+            let repo = format!("{tmpdir}/egg");
+            let cfg = format!("{repo}/custom.env");
+
+            let gitcmd =
+                format!("git clone https://github.com/NBnet/EGG {repo} || exit 1");
+            cmd::exec_output(&gitcmd).c(d!())?;
+
+            if !self.meta.genesis_custom_settings.is_empty() {
+                fs::write(&cfg, self.meta.genesis_custom_settings.as_bytes()).c(d!())?;
+            }
+
+            let cmd = format!(
+                r#"
+                cd {repo} || exit 1
+                if [! -f {cfg}]; then cp {cfg}.minimal.example {cfg} || exit 1; fi
+                sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
+                echo 'export SLOT_DURATION_IN_SECONDS="{}"' >>${cfg} || exit 1
+                make minimal_prepare || exit 1
+                make build
+                "#,
+                self.meta.block_itv
+            );
+
+            cmd::exec_output(&cmd).c(d!())?;
+
+            self.meta.genesis =
+                fs::read(format!("{repo}/data/genesis.tar.gz")).c(d!())?;
+            self.meta.genesis_vkeys =
+                fs::read(format!("{repo}/data/vcdata.tar.gz")).c(d!())?;
+        } else {
+            // extract the tar.gz,
+            // update the `block itv` to the value in the genesis
+
+            let genesis = format!("{tmpdir}/genesis.tar.gz");
+            let yml = format!("{tmpdir}/config.yaml");
+            let cmd = format!("tar -xpf {genesis} && cp ${tmpdir}/*/config.yaml {yml}");
+            fs::write(&genesis, &self.meta.genesis)
+                .c(d!())
+                .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
+
+            let ymlhdr = fs::read(&yml)
+                .c(d!())
+                .and_then(|c| serde_yml::from_slice::<serde_yml::Value>(&c).c(d!()))?;
+
+            self.meta.block_itv = u16::try_from(max!(
+                ymlhdr["SECONDS_PER_SLOT"].as_u64().c(d!())?,
+                ymlhdr["SECONDS_PER_ETH1_BLOCK"].as_u64().c(d!())?,
+            ))
+            .c(d!())?;
+
+            self.write_cfg().c(d!())?;
+        }
+
+        omit!(fs::remove_dir_all(&tmpdir));
+        Ok(())
     }
 
-    // TODO
-    // Apply genesis to one/all nodes in the same env
-    fn apply_genesis(&mut self, n: Option<NodeID>) -> Result<()> {
-        let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
-            self.meta
-                .bootstraps
-                .keys()
-                .chain(self.meta.nodes.keys())
-                .copied()
-                .collect()
-        });
+    // Apply genesis to node[s]:
+    // - copy the xx.tar.gz to the destinaton
+    // - extract it
+    fn apply_genesis(&mut self, id: Option<NodeID>) -> Result<()> {
+        if self.meta.genesis.is_empty() || self.meta.genesis_vkeys.is_empty() {
+            return Err(eg!("BUG: no genesis"));
+        }
 
-        for n in nodes.iter() {
+        let nodes = if let Some(id) = id {
             self.meta
                 .nodes
-                .get(n)
-                .or_else(|| self.meta.bootstraps.get(n))
+                .get(&id)
+                .or_else(|| self.meta.bootstraps.get(&id))
                 .c(d!())
-                .and_then(|n| todo!())?;
+                .map(|n| vec![n])?
+        } else {
+            self.meta
+                .bootstraps
+                .values()
+                .chain(self.meta.nodes.values())
+                .collect()
+        };
+
+        let genesis_node_id = *self.meta.bootstraps.keys().next().c(d!())?;
+
+        let mut p;
+        for n in nodes.iter() {
+            p = format!("{}/genesis.tar.gz", n.home.as_str());
+            fs::write(&p, &self.meta.genesis)
+                .c(d!())
+                .and_then(|_| cmd::exec_output(&format!("tar -xpf {p}")).c(d!()))?;
+
+            if n.id == genesis_node_id {
+                p = format!("{}/vcdata.tar.gz", n.home.as_str());
+                fs::write(&p, &self.meta.genesis_vkeys)
+                    .c(d!())
+                    .and_then(|_| cmd::exec_output(&format!("tar -xpf {p}")).c(d!()))?;
+            }
         }
 
         Ok(())
@@ -583,9 +693,8 @@ where
         EnvMeta::<C, Node<P>>::get_env_list().c(d!())
     }
 
-    fn load_env_by_cfg<A, U>(cfg: &EnvCfg<A, C, P, U>) -> Result<Env<C, P, S>>
+    fn load_env_by_cfg<U>(cfg: &EnvCfg<C, P, U>) -> Result<Env<C, P, S>>
     where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         U: CustomOps,
     {
         Self::load_env_by_name(&cfg.name)
@@ -620,7 +729,7 @@ where
 #[serde(bound = "")]
 pub struct Node<P: NodePorts> {
     pub id: NodeID,
-    #[serde(rename = "node_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
     pub ports: P,
@@ -630,10 +739,11 @@ impl<P: NodePorts> Node<P> {
     fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
     where
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if self
-            .is_running(&env.meta.app_bin, &env.meta.bn_bin, &env.meta.vc_bin)
+        if env
+            .node_cmd_generator
+            .cmd_is_running(self, &env.meta)
             .c(d!())?
         {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
@@ -641,24 +751,7 @@ impl<P: NodePorts> Node<P> {
 
         match unsafe { unistd::fork() } {
             Ok(ForkResult::Child) => {
-                let (app_vars, app_opts) =
-                    env.node_opts_generator.app_opts(self, &env.meta);
-                let (bn_vars, bn_opts) =
-                    env.node_opts_generator.consensus_bn_opts(self, &env.meta);
-                let (vc_vars, vc_opts) =
-                    env.node_opts_generator.consensus_vc_opts(self, &env.meta);
-                let cmd = format!(
-                    r#"
-                    chmod +x {app_bin} {bn_bin} {vc_bin} || exit 1
-                    {app_vars} {app_bin} {app_opts} >>{home}/app.log 2>&1 &
-                    {bn_vars} {bn_bin} {bn_opts} >>{home}/consensus_bn.log 2>&1 &
-                    {vc_vars} {vc_bin} {vc_opts} >>{home}/consensus_vc.log 2>&1 &
-                    "#,
-                    app_bin = env.meta.app_bin,
-                    bn_bin = env.meta.bn_bin,
-                    vc_bin = env.meta.vc_bin,
-                    home = &self.home,
-                );
+                let cmd = env.node_cmd_generator.cmd_for_start(self, &env.meta);
                 pnk!(self.write_dev_log(&cmd));
                 pnk!(exec_spawn(&cmd));
                 exit(0);
@@ -668,38 +761,31 @@ impl<P: NodePorts> Node<P> {
         }
     }
 
-    fn is_running(&self, app_bin: &str, bn_bin: &str, vc_bin: &str) -> Result<bool> {
-        let cmd = format!(
-            "ps ax -o pid,args | grep -E '({0}.*{3})|({1}.*{3})|({2}.*{3})' | grep -v 'grep' | wc -l",
-            app_bin, bn_bin, vc_bin, &self.home
-        );
-
-        // Use the `wc -l` instead of the `grep -vc 'grep'`
-        // to avoid a non-zero exit code
-        cmd::exec_output(&cmd)
-            .c(d!(&cmd))?
-            .trim()
-            .parse::<u64>()
-            .c(d!())
-            .map(|n| alt!(0 < n, true, false))
-    }
-
-    fn stop(&self, force: bool) -> Result<()> {
-        let cmd = format!(
-            "for i in \
-                $(ps ax -o pid,args \
-                    | grep '{}' \
-                    | grep -v 'grep' \
-                    | grep -Eo '^ *[0-9]+' \
-                    | sed 's/ //g' \
-                ); \
-             do kill {} $i; done",
-            &self.home,
-            alt!(force, "-9", ""),
-        );
+    fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
+    where
+        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
+        let cmd = env.node_cmd_generator.cmd_for_stop(self, &env.meta, force);
         let outputs = cmd::exec_output(&cmd).c(d!())?;
         let contents = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&contents).c(d!())
+    }
+
+    // - Stop the node
+    // - Release all occupied ports
+    // - Remove all files related to this node
+    fn destroy<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
+    where
+        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
+        self.stop(env, true).c(d!())?;
+
+        // Wait the node to be actually stopped
+        sleep_ms!(100);
+
+        self.clean_up().c(d!())
     }
 
     fn write_dev_log(&self, cmd: &str) -> Result<()> {
@@ -719,7 +805,7 @@ impl<P: NodePorts> Node<P> {
 
     // - Release all occupied ports
     // - Remove all files related to this node
-    fn clean(&self) -> Result<()> {
+    fn clean_up(&self) -> Result<()> {
         for port in self.ports.get_port_list().into_iter() {
             PortsCache::remove(port).c(d!())?;
         }
@@ -729,31 +815,30 @@ impl<P: NodePorts> Node<P> {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum NodeKind {
-    Bootstrap = 0,
-    ArchiveNode = 1,
-    FullNode = 2,
+    Bootstrap,
+    ArchiveNode,
+    FullNode,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub enum Op<A, C, P, U>
+pub enum Op<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
 {
-    Create(EnvOpts<A, C>),
+    Create(EnvOpts<C>),
     Destroy(bool),    // force or not
     DestroyAll(bool), // force or not
-    PushNode(bool),   // require an archive node or not
+    PushNode(bool),   // for archive node, set `true`; full node set `false`
     KickNode(Option<NodeID>),
     Protect,
     Unprotect,
     Start(Option<NodeID>),
     StartAll,
-    Stop((Option<NodeID>, bool)), // force or not
-    StopAll(bool),                // force or not
+    Stop((Option<NodeID>, bool)), // force(kill -9) or not
+    StopAll(bool),                // force(kill -9) or not
     Show,
     ShowAll,
     List,
@@ -764,31 +849,48 @@ where
 /// Options specified with the create operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvOpts<A, C>
+pub struct EnvOpts<C>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
     /// Default to '127.0.0.1'
     pub host_ip: String,
 
     /// Seconds between two blocks
-    pub block_itv_secs: BlockItv,
+    pub block_itv: BlockItv,
 
-    /// How many initial validators should be created,
-    /// default to 4
-    pub initial_validator_num: u8,
+    /// The contents of a EGG custom.env,
+    ///
+    /// Format:
+    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    #[serde(default)]
+    pub genesis_custom_settings: String,
 
-    pub app_bin: String,
-    pub app_extra_opts: String,
+    /// The network cfg files,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis_tgz_path: Option<String>,
 
-    pub bn_bin: String,
-    pub bn_extra_opts: String,
+    /// The initial validator keys,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis_vkeys_tgz_path: Option<String>,
 
-    pub force_create: bool,
+    /// How many initial nodes should be created,
+    /// including the bootstrap node
+    pub initial_node_num: u8,
 
-    pub app_state: A,
+    /// Set nodes as full node by default
+    #[serde(default)]
+    pub initial_nodes_archive_mode: bool,
+
+    /// Custom data may be useful when cfg/running nodes,
+    /// such as the info about execution client(reth or geth)
     pub custom_data: C,
+
+    /// Try to destroy env with the same name,
+    /// and create a new one
+    pub force_create: bool,
 }
 
 fn port_is_free(port: u16) -> bool {
@@ -826,7 +928,7 @@ fn check_port(port: u16) -> Result<()> {
 }
 
 fn exec_spawn(cmd: &str) -> Result<()> {
-    let cmd = format!("ulimit -n 100000; {}", cmd);
+    let cmd = format!("ulimit -n 102400; {}", cmd);
     Command::new("bash")
         .arg("-c")
         .arg(cmd)

@@ -47,49 +47,42 @@ pub trait NodePorts:
     /// all: <sys ports> + <app ports>
     fn get_port_list(&self) -> Vec<u16>;
 
+    /// The rpc listening port in the app side,
+    /// eg. ETH el(geth/reth) web3 API rpc
+    fn get_app_rpc(&self) -> u16; // { 8545 }
+
     /// The p2p listening port in the execution side,
-    /// may be used in generating the enode address for an execution node.
-    fn get_sys_p2p_execution(&self) -> u16 {
-        30303
-    }
+    /// may be used in generating the enode address for an execution node
+    fn get_sys_p2p_execution(&self) -> u16; // { 30303 }
 
     /// The p2p(tcp/udp protocol) listening port in the beacon side
-    /// may be used in generating the ENR address for a beacon node.
-    fn get_sys_p2p_consensus_bn(&self) -> u16 {
-        9000
-    }
+    /// may be used in generating the ENR address for a beacon node
+    fn get_sys_p2p_consensus_bn(&self) -> u16; // { 9000 }
 
     /// The p2p(quic protocol) listening port in the beacon side
-    /// may be used in generating the ENR address for a beacon node.
-    fn get_sys_p2p_consensus_bn_quic(&self) -> u16 {
-        9001
-    }
+    /// may be used in generating the ENR address for a beacon node
+    fn get_sys_p2p_consensus_bn_quic(&self) -> u16; // { 9001 }
 
     /// The rpc listening port in the beacon side,
     /// usage(beacon): `--checkpoint-sync-url="http://${peer_ip}:5052"`
-    fn get_sys_rpc_consensus_bn(&self) -> u16 {
-        5052
-    }
+    fn get_sys_rpc_consensus_bn(&self) -> u16; // { 5052 }
 
     /// The engine API listening port in the execution side
     /// usage(beacon): `--execution-endpoints="http://localhost:8551"`
-    fn get_sys_engine_api(&self) -> u16 {
-        8551
-    }
+    fn get_sys_engine_api(&self) -> u16; // { 8551 }
 }
 
-/// return: (Environment VAR definations, command line options)
-pub trait NodeOptsGenerator<N, E>:
+pub trait NodeCmdGenerator<N, E>:
     Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
 {
-    /// Extra options of the execution side
-    fn app_opts(&self, node: &N, env_meta: &E) -> (String, String);
+    /// Return: the custom cmd to start the node
+    fn cmd_for_start(&self, node: &N, env_meta: &E) -> String;
 
-    /// Extra options of the consensus beacon side
-    fn consensus_bn_opts(&self, node: &N, env_meta: &E) -> (String, String);
+    /// Return: the custom cmd to stop the node
+    fn cmd_for_stop(&self, node: &N, env_meta: &E, force: bool) -> String;
 
-    /// Extra options of the consensus validator side
-    fn consensus_vc_opts(&self, node: &N, env_meta: &E) -> (String, String);
+    /// Return: whether the target node is running
+    fn cmd_is_running(&self, node: &N, env_meta: &E) -> Result<bool>;
 }
 
 pub trait CustomOps:
@@ -112,13 +105,13 @@ impl CustomOps for () {
 pub(crate) static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
     let ret = env::var("RUNTIME_CHAIN_DEV_BASE_DIR").unwrap_or_else(|_| {
         format!(
-            "/tmp/__CHAIN_DEV__{}/{}/{}",
+            "/__chain_dev__/beacon_based/{}/{}/{}",
             option_env!("STATIC_CHAIN_DEV_BASE_DIR_SUFFIX").unwrap_or(""),
             unistd::gethostname().unwrap().into_string().unwrap(),
             unistd::User::from_uid(unistd::getuid())
                 .unwrap()
                 .unwrap()
-                .name
+                .name,
         )
     });
     pnk!(fs::create_dir_all(&ret));
@@ -131,4 +124,3 @@ pub(crate) static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
 // pub(crate) const PRESET_DEPOSIT: u128 = 32 * 10_u128.pow(18); // 32 ETH
 
 pub(crate) type BlockItv = u16;
-pub(crate) type GenesisTgz = Vec<u8>;

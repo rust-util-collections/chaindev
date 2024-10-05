@@ -1,5 +1,5 @@
 //!
-//! Localhost version.
+//! Localhost version
 //!
 
 use nix::{
@@ -32,7 +32,7 @@ use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 pub use super::common::*;
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
-    LazyLock::new(|| format!("{}/__DEV__", &*BASE_DIR));
+    LazyLock::new(|| format!("{}/__dev__", &*BASE_DIR));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
@@ -472,7 +472,7 @@ where
     }
 
     // 1. Allocate ports
-    // 2. Change configs: ports, bootstrap address, etc.
+    // 2. Change configs: ports, bootstrap address, etc
     // 3. Insert new node to the meta of env
     // 4. Write new configs of tendermint to disk
     fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
@@ -665,7 +665,7 @@ where
     }
 
     // Generate a new `genesis.json`
-    // based on the collection of initial validators.
+    // based on the collection of initial validators
     fn gen_genesis<A>(&mut self, app_state: &A) -> Result<()>
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
@@ -820,7 +820,7 @@ pub struct Node<P: NodePorts> {
     pub id: NodeID,
     #[serde(rename = "tendermint_node_id")]
     pub tm_id: String,
-    #[serde(rename = "node_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
     pub ports: P,
@@ -1021,7 +1021,7 @@ fn check_port(port: u16) -> Result<()> {
 }
 
 fn exec_spawn(cmd: &str) -> Result<()> {
-    let cmd = format!("ulimit -n 100000; {}", cmd);
+    let cmd = format!("ulimit -n 102400; {}", cmd);
     Command::new("bash")
         .arg("-c")
         .arg(cmd)

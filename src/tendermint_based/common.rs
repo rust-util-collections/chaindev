@@ -67,13 +67,13 @@ impl CustomOps for () {
 pub(crate) static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
     let ret = env::var("RUNTIME_CHAIN_DEV_BASE_DIR").unwrap_or_else(|_| {
         format!(
-            "/tmp/__CHAIN_DEV__{}/{}/{}",
+            "/__chain_dev__/tendermint_based/{}/{}/{}",
             option_env!("STATIC_CHAIN_DEV_BASE_DIR_SUFFIX").unwrap_or(""),
             unistd::gethostname().unwrap().into_string().unwrap(),
             unistd::User::from_uid(unistd::getuid())
                 .unwrap()
                 .unwrap()
-                .name
+                .name,
         )
     });
     pnk!(fs::create_dir_all(&ret));

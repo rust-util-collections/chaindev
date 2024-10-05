@@ -1,5 +1,5 @@
 //!
-//! Distributed version.
+//! Distributed version
 //!
 
 mod host;
@@ -31,7 +31,7 @@ pub use super::common::*;
 pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, Hosts};
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
-    LazyLock::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
+    LazyLock::new(|| format!("{}/__d_dev__", &*BASE_DIR));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
@@ -859,7 +859,7 @@ where
     }
 
     // 1. Allocate host and ports
-    // 2. Change configs: ports, bootstrap address, etc.
+    // 2. Change configs: ports, bootstrap address, etc
     // 3. Write new configs of beacon to local/remote disk
     // 4. Insert new node to the meta of env
     fn alloc_resources(
@@ -1071,7 +1071,7 @@ where
     }
 
     // Generate a new `genesis.json`
-    // based on the collection of initial validators.
+    // based on the collection of initial validators
     fn gen_genesis<A>(&mut self, app_state: &A) -> Result<()>
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
@@ -1349,7 +1349,7 @@ pub struct Node<P: NodePorts> {
     id: NodeID,
     #[serde(rename = "beacon_node_id")]
     bc_id: String,
-    #[serde(rename = "node_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
     pub host: HostMeta,
