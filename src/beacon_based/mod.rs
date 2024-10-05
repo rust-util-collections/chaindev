@@ -1,5 +1,5 @@
 //!
-//! For beacon(eth2) based chain.
+//! For beacon(eth2) based chain
 //!
 
 pub mod common;

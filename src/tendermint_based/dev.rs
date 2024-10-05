@@ -1,5 +1,5 @@
 //!
-//! Localhost version.
+//! Localhost version
 //!
 
 use nix::{
@@ -472,7 +472,7 @@ where
     }
 
     // 1. Allocate ports
-    // 2. Change configs: ports, bootstrap address, etc.
+    // 2. Change configs: ports, bootstrap address, etc
     // 3. Insert new node to the meta of env
     // 4. Write new configs of tendermint to disk
     fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
@@ -665,7 +665,7 @@ where
     }
 
     // Generate a new `genesis.json`
-    // based on the collection of initial validators.
+    // based on the collection of initial validators
     fn gen_genesis<A>(&mut self, app_state: &A) -> Result<()>
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,

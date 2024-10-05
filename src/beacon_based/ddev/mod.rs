@@ -1,5 +1,5 @@
 //!
-//! Distributed version.
+//! Distributed version
 //!
 
 mod host;
@@ -859,7 +859,7 @@ where
     }
 
     // 1. Allocate host and ports
-    // 2. Change configs: ports, bootstrap address, etc.
+    // 2. Change configs: ports, bootstrap address, etc
     // 3. Write new configs of beacon to local/remote disk
     // 4. Insert new node to the meta of env
     fn alloc_resources(
@@ -1071,7 +1071,7 @@ where
     }
 
     // Generate a new `genesis.json`
-    // based on the collection of initial validators.
+    // based on the collection of initial validators
     fn gen_genesis<A>(&mut self, app_state: &A) -> Result<()>
     where
         A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,

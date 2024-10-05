@@ -1,5 +1,5 @@
 //!
-//! For tendermint based chain.
+//! For tendermint based chain
 //!
 
 pub mod common;
