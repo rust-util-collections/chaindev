@@ -49,33 +49,23 @@ pub trait NodePorts:
 
     /// The p2p listening port in the execution side,
     /// may be used in generating the enode address for an execution node
-    fn get_sys_p2p_execution(&self) -> u16 {
-        30303
-    }
+    fn get_sys_p2p_execution(&self) -> u16; // { 30303 }
 
     /// The p2p(tcp/udp protocol) listening port in the beacon side
     /// may be used in generating the ENR address for a beacon node
-    fn get_sys_p2p_consensus_bn(&self) -> u16 {
-        9000
-    }
+    fn get_sys_p2p_consensus_bn(&self) -> u16; // { 9000 }
 
     /// The p2p(quic protocol) listening port in the beacon side
     /// may be used in generating the ENR address for a beacon node
-    fn get_sys_p2p_consensus_bn_quic(&self) -> u16 {
-        9001
-    }
+    fn get_sys_p2p_consensus_bn_quic(&self) -> u16; // { 9001 }
 
     /// The rpc listening port in the beacon side,
     /// usage(beacon): `--checkpoint-sync-url="http://${peer_ip}:5052"`
-    fn get_sys_rpc_consensus_bn(&self) -> u16 {
-        5052
-    }
+    fn get_sys_rpc_consensus_bn(&self) -> u16; // { 5052 }
 
     /// The engine API listening port in the execution side
     /// usage(beacon): `--execution-endpoints="http://localhost:8551"`
-    fn get_sys_engine_api(&self) -> u16 {
-        8551
-    }
+    fn get_sys_engine_api(&self) -> u16; // { 8551 }
 }
 
 pub trait NodeCmdGenerator<N, E>:
@@ -111,13 +101,13 @@ impl CustomOps for () {
 pub(crate) static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
     let ret = env::var("RUNTIME_CHAIN_DEV_BASE_DIR").unwrap_or_else(|_| {
         format!(
-            "/tmp/__CHAIN_DEV__{}/{}/{}",
-            option_env!("STATIC_CHAIN_DEV_BASE_DIR_SUFFIX").unwrap_or(""),
+            "/__chain_dev__/{}/{}/{}",
             unistd::gethostname().unwrap().into_string().unwrap(),
             unistd::User::from_uid(unistd::getuid())
                 .unwrap()
                 .unwrap()
-                .name
+                .name,
+            option_env!("STATIC_CHAIN_DEV_BASE_DIR_SUFFIX").unwrap_or(""),
         )
     });
     pnk!(fs::create_dir_all(&ret));
