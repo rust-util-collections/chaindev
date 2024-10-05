@@ -55,7 +55,7 @@ where
     pub fn exec<S>(&self, s: S) -> Result<()>
     where
         P: NodePorts,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
             Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
@@ -176,7 +176,7 @@ where
 
     pub fn load_env_by_name<S>(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>>
     where
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read_to_string(p) {
@@ -202,20 +202,20 @@ pub struct Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     pub meta: EnvMeta<C, Node<P>>,
     pub is_protected: bool,
 
     #[serde(rename = "node_options_generator")]
-    pub node_opts_generator: S,
+    pub node_cmdline_generator: S,
 }
 
 impl<C, P, S> Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     // - Initilize a new env
     // - Create `genesis.json`
@@ -255,7 +255,7 @@ where
                 next_node_id: Default::default(),
             },
             is_protected: true,
-            node_opts_generator: s,
+            node_cmdline_generator: s,
         };
 
         fs::create_dir_all(&env.meta.home).c(d!())?;
@@ -268,7 +268,7 @@ where
         }
 
         add_initial_nodes!(Bootstrap);
-        for _ in 0..opts.initial_validator_num {
+        for _ in 0..opts.initial_node_num {
             add_initial_nodes!(ArchiveNode);
         }
 
@@ -623,7 +623,7 @@ impl<P: NodePorts> Node<P> {
     fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
     where
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         if self
             .is_running(&env.meta.app_bin, &env.meta.bn_bin, &env.meta.vc_bin)
@@ -634,24 +634,7 @@ impl<P: NodePorts> Node<P> {
 
         match unsafe { unistd::fork() } {
             Ok(ForkResult::Child) => {
-                let (app_vars, app_opts) =
-                    env.node_opts_generator.app_opts(self, &env.meta);
-                let (bn_vars, bn_opts) =
-                    env.node_opts_generator.consensus_bn_opts(self, &env.meta);
-                let (vc_vars, vc_opts) =
-                    env.node_opts_generator.consensus_vc_opts(self, &env.meta);
-                let cmd = format!(
-                    r#"
-                    chmod +x {app_bin} {bn_bin} {vc_bin} || exit 1
-                    {app_vars} {app_bin} {app_opts} >>{home}/app.log 2>&1 &
-                    {bn_vars} {bn_bin} {bn_opts} >>{home}/consensus_bn.log 2>&1 &
-                    {vc_vars} {vc_bin} {vc_opts} >>{home}/consensus_vc.log 2>&1 &
-                    "#,
-                    app_bin = env.meta.app_bin,
-                    bn_bin = env.meta.bn_bin,
-                    vc_bin = env.meta.vc_bin,
-                    home = &self.home,
-                );
+                let cmd = env.node_cmdline_generator.cmdline(self, &env.meta);
                 pnk!(self.write_dev_log(&cmd));
                 pnk!(exec_spawn(&cmd));
                 exit(0);
@@ -766,9 +749,9 @@ where
     /// Seconds between two blocks
     pub block_itv_secs: BlockItv,
 
-    /// How many initial validators should be created,
-    /// default to 4
-    pub initial_validator_num: u8,
+    /// How many initial nodes should be created,
+    /// default to 4(include the bootstrap node).
+    pub initial_node_num: u8,
 
     pub app_bin: String,
     pub app_extra_opts: String,

@@ -48,19 +48,19 @@ pub trait NodePorts:
     fn get_port_list(&self) -> Vec<u16>;
 
     /// The p2p listening port in the execution side,
-    /// may be used in generating the enode address for an execution node.
+    /// may be used in generating the enode address for an execution node
     fn get_sys_p2p_execution(&self) -> u16 {
         30303
     }
 
     /// The p2p(tcp/udp protocol) listening port in the beacon side
-    /// may be used in generating the ENR address for a beacon node.
+    /// may be used in generating the ENR address for a beacon node
     fn get_sys_p2p_consensus_bn(&self) -> u16 {
         9000
     }
 
     /// The p2p(quic protocol) listening port in the beacon side
-    /// may be used in generating the ENR address for a beacon node.
+    /// may be used in generating the ENR address for a beacon node
     fn get_sys_p2p_consensus_bn_quic(&self) -> u16 {
         9001
     }
@@ -78,18 +78,11 @@ pub trait NodePorts:
     }
 }
 
-/// return: (Environment VAR definations, command line options)
-pub trait NodeOptsGenerator<N, E>:
+pub trait NodeCmdlineGenerator<N, E>:
     Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
 {
-    /// Extra options of the execution side
-    fn app_opts(&self, node: &N, env_meta: &E) -> (String, String);
-
-    /// Extra options of the consensus beacon side
-    fn consensus_bn_opts(&self, node: &N, env_meta: &E) -> (String, String);
-
-    /// Extra options of the consensus validator side
-    fn consensus_vc_opts(&self, node: &N, env_meta: &E) -> (String, String);
+    /// Return the final generated cmdline(execution commands)
+    fn cmdline(&self, node: &N, env_meta: &E) -> String;
 }
 
 pub trait CustomOps:
