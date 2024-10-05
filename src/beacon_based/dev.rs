@@ -118,18 +118,6 @@ where
 
     pub host_ip: String,
 
-    #[serde(rename = "app_bin")]
-    pub app_bin: String,
-    pub app_extra_opts: String,
-
-    #[serde(rename = "beacon_bin")]
-    pub bn_bin: String,
-    pub bn_extra_opts: String,
-
-    #[serde(rename = "validator_bin")]
-    pub vc_bin: String,
-    pub vc_extra_opts: String,
-
     /// Seconds between two blocks
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv_secs: BlockItv,
@@ -241,12 +229,6 @@ where
                 name: cfg.name.clone(),
                 home,
                 host_ip: opts.host_ip.clone(),
-                app_bin: opts.app_bin.clone(),
-                app_extra_opts: opts.app_extra_opts.clone(),
-                bn_bin: opts.bn_bin.clone(),
-                bn_extra_opts: opts.bn_extra_opts.clone(),
-                vc_bin: opts.bn_bin.clone(),
-                vc_extra_opts: opts.bn_extra_opts.clone(),
                 block_itv_secs: opts.block_itv_secs,
                 nodes: Default::default(),
                 bootstraps: Default::default(),
@@ -625,8 +607,9 @@ impl<P: NodePorts> Node<P> {
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         S: NodeCmdlineGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if self
-            .is_running(&env.meta.app_bin, &env.meta.bn_bin, &env.meta.vc_bin)
+        if env
+            .node_cmdline_generator
+            .is_running(self, &env.meta)
             .c(d!())?
         {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
@@ -642,22 +625,6 @@ impl<P: NodePorts> Node<P> {
             Ok(_) => Ok(()),
             Err(_) => Err(eg!("fork failed!")),
         }
-    }
-
-    fn is_running(&self, app_bin: &str, bn_bin: &str, vc_bin: &str) -> Result<bool> {
-        let cmd = format!(
-            "ps ax -o pid,args | grep -E '({0}.*{3})|({1}.*{3})|({2}.*{3})' | grep -v 'grep' | wc -l",
-            app_bin, bn_bin, vc_bin, &self.home
-        );
-
-        // Use the `wc -l` instead of the `grep -vc 'grep'`
-        // to avoid a non-zero exit code
-        cmd::exec_output(&cmd)
-            .c(d!(&cmd))?
-            .trim()
-            .parse::<u64>()
-            .c(d!())
-            .map(|n| alt!(0 < n, true, false))
     }
 
     fn stop(&self, force: bool) -> Result<()> {
@@ -752,12 +719,6 @@ where
     /// How many initial nodes should be created,
     /// default to 4(include the bootstrap node).
     pub initial_node_num: u8,
-
-    pub app_bin: String,
-    pub app_extra_opts: String,
-
-    pub bn_bin: String,
-    pub bn_extra_opts: String,
 
     pub force_create: bool,
 
