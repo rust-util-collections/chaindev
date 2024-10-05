@@ -616,7 +616,7 @@ where
 #[serde(bound = "")]
 pub struct Node<P: NodePorts> {
     pub id: NodeID,
-    #[serde(rename = "node_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
     pub ports: P,
@@ -628,7 +628,11 @@ impl<P: NodePorts> Node<P> {
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if env.node_cmd_generator.is_running(self, &env.meta).c(d!())? {
+        if env
+            .node_cmd_generator
+            .cmd_is_running(self, &env.meta)
+            .c(d!())?
+        {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
         }
 
@@ -698,9 +702,9 @@ impl<P: NodePorts> Node<P> {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum NodeKind {
-    Bootstrap = 0,
-    ArchiveNode = 1,
-    FullNode = 2,
+    Bootstrap,
+    ArchiveNode,
+    FullNode,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -714,14 +718,14 @@ where
     Create(EnvOpts<C>),
     Destroy(bool),    // force or not
     DestroyAll(bool), // force or not
-    PushNode(bool),   // require an archive node or not
+    PushNode(bool),   // for archive node, set `true`; full node set `false`
     KickNode(Option<NodeID>),
     Protect,
     Unprotect,
     Start(Option<NodeID>),
     StartAll,
-    Stop((Option<NodeID>, bool)), // force or not
-    StopAll(bool),                // force or not
+    Stop((Option<NodeID>, bool)), // force(kill -9) or not
+    StopAll(bool),                // force(kill -9) or not
     Show,
     ShowAll,
     List,
@@ -746,20 +750,21 @@ where
     /// default to 4(include the bootstrap node)
     pub initial_node_num: u8,
 
-    #[serde(default = "initial_nodes_archive_default")]
+    /// Set as full nodes by default
+    #[serde(default)]
     pub initial_nodes_archive: bool,
 
-    // Ethereum Genesis Generator
+    /// EGG, Eth-Genesis-Generator,
+    /// - https://github.com/NBnet/EGG
     pub egg_path: String,
 
+    /// Some custom data may be useful when running nodes,
+    /// such as the info about execution client(reth or geth)
     pub custom_data: C,
 
+    /// Try to destroy env with the same name,
+    /// and create a new one
     pub force_create: bool,
-}
-
-#[inline(always)]
-fn initial_nodes_archive_default() -> bool {
-    true
 }
 
 fn port_is_free(port: u16) -> bool {
@@ -797,7 +802,7 @@ fn check_port(port: u16) -> Result<()> {
 }
 
 fn exec_spawn(cmd: &str) -> Result<()> {
-    let cmd = format!("ulimit -n 100000; {}", cmd);
+    let cmd = format!("ulimit -n 102400; {}", cmd);
     Command::new("bash")
         .arg("-c")
         .arg(cmd)

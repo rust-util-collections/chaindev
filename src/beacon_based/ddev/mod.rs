@@ -1349,7 +1349,7 @@ pub struct Node<P: NodePorts> {
     id: NodeID,
     #[serde(rename = "beacon_node_id")]
     bc_id: String,
-    #[serde(rename = "node_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
     pub host: HostMeta,

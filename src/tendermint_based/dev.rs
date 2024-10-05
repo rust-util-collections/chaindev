@@ -820,7 +820,7 @@ pub struct Node<P: NodePorts> {
     pub id: NodeID,
     #[serde(rename = "tendermint_node_id")]
     pub tm_id: String,
-    #[serde(rename = "node_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
     pub ports: P,
@@ -1021,7 +1021,7 @@ fn check_port(port: u16) -> Result<()> {
 }
 
 fn exec_spawn(cmd: &str) -> Result<()> {
-    let cmd = format!("ulimit -n 100000; {}", cmd);
+    let cmd = format!("ulimit -n 102400; {}", cmd);
     Command::new("bash")
         .arg("-c")
         .arg(cmd)

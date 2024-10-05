@@ -1348,7 +1348,7 @@ pub struct Node<P: NodePorts> {
     id: NodeID,
     #[serde(rename = "tendermint_node_id")]
     tm_id: String,
-    #[serde(rename = "node_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
     pub host: HostMeta,

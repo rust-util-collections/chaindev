@@ -78,7 +78,7 @@ pub trait NodeCmdGenerator<N, E>:
     fn cmd_for_stop(&self, node: &N, env_meta: &E, force: bool) -> String;
 
     /// Return: whether the target node is running
-    fn is_running(&self, node: &N, env_meta: &E) -> Result<bool>;
+    fn cmd_is_running(&self, node: &N, env_meta: &E) -> Result<bool>;
 }
 
 pub trait CustomOps:
