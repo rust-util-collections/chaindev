@@ -47,6 +47,10 @@ pub trait NodePorts:
     /// all: <sys ports> + <app ports>
     fn get_port_list(&self) -> Vec<u16>;
 
+    /// The rpc listening port in the app side,
+    /// eg. ETH el(geth/reth) web3 API rpc
+    fn get_app_rpc(&self) -> u16; // { 8545 }
+
     /// The p2p listening port in the execution side,
     /// may be used in generating the enode address for an execution node
     fn get_sys_p2p_execution(&self) -> u16; // { 30303 }

@@ -117,6 +117,8 @@ where
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv_secs: BlockItv,
 
+    /// The first Bootstrap node
+    /// will be treated as the genesis node
     #[serde(rename = "bootstrap_nodes")]
     pub bootstraps: BTreeMap<NodeID, N>,
 
@@ -328,7 +330,7 @@ where
         self.alloc_resources(id, kind)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.start_node(id).c(d!()))
+            .and_then(|_| self.start_node(id).c(d!())) // .and_then(|_| self.write_cfg().c(d!()))
     }
 
     // Kick out a target node, or a randomly selected one,
@@ -492,13 +494,30 @@ where
         Ok(())
     }
 
-    // TODO
     // 1. Allocate ports
-    // 2. Change configs: ports, bootstrap address, etc
-    // 3. Insert new node to the meta of env
-    // 4. Write new configs of beacon to disk
+    // 2. Record the node in its ENV meta
     fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
-        todo!()
+        // 1.
+        let ports = self.alloc_ports(&kind).c(d!())?;
+
+        // 2.
+        let node = Node {
+            id,
+            home: format!("{}/{}", &self.meta.home, id),
+            kind,
+            ports,
+        };
+
+        match kind {
+            NodeKind::FullNode | NodeKind::ArchiveNode => {
+                self.meta.nodes.insert(id, node)
+            }
+            NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
+        };
+
+        // self.write_cfg().c(d!())
+
+        Ok(())
     }
 
     // Global alloctor for ports
@@ -535,20 +554,9 @@ where
         P::try_create(&res).c(d!())
     }
 
-    // TODO
-    // randomly select some nodes:
-    //   - update bootnodes for all clients
-    //   - update trusted peers for lighthouse and reth
+    // fix me ?
+    #[inline(always)]
     fn update_peer_cfg(&self) -> Result<()> {
-        for n in self
-            .meta
-            .nodes
-            .values()
-            .chain(self.meta.bootstraps.values())
-        {
-            todo!()
-        }
-
         Ok(())
     }
 
@@ -579,25 +587,44 @@ where
         todo!()
     }
 
-    // TODO
-    // Apply genesis to one/all nodes in the same env
-    fn apply_genesis(&mut self, n: Option<NodeID>) -> Result<()> {
-        let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
-            self.meta
-                .bootstraps
-                .keys()
-                .chain(self.meta.nodes.keys())
-                .copied()
-                .collect()
-        });
+    // Apply genesis to node[s]:
+    // - copy the xx.tar.gz to the destinaton
+    // - extract it
+    fn apply_genesis(&mut self, id: Option<NodeID>) -> Result<()> {
+        if self.meta.genesis.is_empty() || self.meta.genesis_vkeys.is_empty() {
+            return Err(eg!("BUG: no genesis"));
+        }
 
-        for n in nodes.iter() {
+        let nodes = if let Some(id) = id {
             self.meta
                 .nodes
-                .get(n)
-                .or_else(|| self.meta.bootstraps.get(n))
+                .get(&id)
+                .or_else(|| self.meta.bootstraps.get(&id))
                 .c(d!())
-                .and_then(|n| todo!())?;
+                .map(|n| vec![n])?
+        } else {
+            self.meta
+                .bootstraps
+                .values()
+                .chain(self.meta.nodes.values())
+                .collect()
+        };
+
+        let genesis_node_id = *self.meta.bootstraps.keys().next().c(d!())?;
+
+        let mut p;
+        for n in nodes.iter() {
+            p = format!("{}/genesis.tar.gz", n.home.as_str());
+            fs::write(&p, &self.meta.genesis)
+                .c(d!())
+                .and_then(|_| cmd::exec_output(&format!("tar -xpf {p}")).c(d!()))?;
+
+            if n.id == genesis_node_id {
+                p = format!("{}/vcdata.tar.gz", n.home.as_str());
+                fs::write(&p, &self.meta.genesis_vkeys)
+                    .c(d!())
+                    .and_then(|_| cmd::exec_output(&format!("tar -xpf {p}")).c(d!()))?;
+            }
         }
 
         Ok(())
