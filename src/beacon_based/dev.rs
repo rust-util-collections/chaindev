@@ -10,7 +10,6 @@ use nix::{
 };
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use std::{
     collections::BTreeMap,
     collections::BTreeSet,
@@ -18,11 +17,9 @@ use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
     os::unix::io::AsRawFd,
-    path::PathBuf,
     process::{exit, Command, Stdio},
     sync::LazyLock,
 };
-use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 
 pub use super::common::*;
 
