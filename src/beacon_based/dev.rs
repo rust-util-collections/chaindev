@@ -28,37 +28,39 @@ static GLOBAL_BASE_DIR: LazyLock<String> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvCfg<C, P, U>
+pub struct EnvCfg<Data, Ports, Ops>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    P: NodePorts,
-    U: CustomOps,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Ports: NodePorts,
+    Ops: CustomOps,
 {
     /// The name of this env
     pub name: EnvName,
 
     /// Which operation to trigger/call
-    pub op: Op<C, P, U>,
+    pub op: Op<Data, Ports, Ops>,
 }
 
-impl<C, P, U> EnvCfg<C, P, U>
+impl<Data, Ports, Ops> EnvCfg<Data, Ports, Ops>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    P: NodePorts,
-    U: CustomOps,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Ports: NodePorts,
+    Ops: CustomOps,
 {
-    pub fn exec<S>(&self, s: S) -> Result<()>
+    pub fn exec<Cmds>(&self, s: Cmds) -> Result<()>
     where
-        P: NodePorts,
-        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        Ports: NodePorts,
+        Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         match &self.op {
-            Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
-            Op::Destroy(force) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Create(opts) => Env::<Data, Ports, Cmds>::create(self, opts, s).c(d!()),
+            Op::Destroy(force) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
-            Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
-            Op::PushNode(is_archive) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::DestroyAll(force) => {
+                Env::<Data, Ports, Cmds>::destroy_all(*force).c(d!())
+            }
+            Op::PushNode(is_archive) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| {
                     env.push_node(alt!(
@@ -68,28 +70,34 @@ where
                     ))
                     .c(d!())
                 }),
-            Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickNode(node_id) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.kick_node(*node_id).c(d!())),
-            Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Protect => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
-            Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Unprotect => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Start(node_id) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.launch(*node_id).c(d!())),
-            Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
-            Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| env.stop(*node_id, *force).c(d!())),
-            Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
-            Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
-                env.show();
-            }),
-            Op::ShowAll => Env::<C, P, S>::show_all().c(d!()),
-            Op::List => Env::<C, P, S>::list_all().c(d!()),
+            Op::StartAll => Env::<Data, Ports, Cmds>::start_all().c(d!()),
+            Op::Stop((node_id, force)) => {
+                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|mut env| env.stop(*node_id, *force).c(d!()))
+            }
+            Op::StopAll(force) => Env::<Data, Ports, Cmds>::stop_all(*force).c(d!()),
+            Op::Show => {
+                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                    .c(d!())
+                    .map(|env| {
+                        env.show();
+                    })
+            }
+            Op::ShowAll => Env::<Data, Ports, Cmds>::show_all().c(d!()),
+            Op::List => Env::<Data, Ports, Cmds>::list_all().c(d!()),
             Op::Custom(custom_op) => custom_op.exec(&self.name).c(d!()),
             Op::Nil(_) => unreachable!(),
         }
@@ -98,9 +106,9 @@ where
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub struct EnvMeta<C, N>
+pub struct EnvMeta<Data, N>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     N: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
     /// The name of this env
@@ -108,7 +116,7 @@ where
     pub name: EnvName,
 
     /// The data path of this env
-    #[serde(rename = "env_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
 
     /// eg.
@@ -149,18 +157,18 @@ where
     #[serde(skip)]
     pub nodes_should_be_online: BTreeSet<NodeID>,
 
-    /// Custom data may be useful when cfg/running nodes,
+    /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
-    pub custom_data: C,
+    pub custom_data: Data,
 
     /// Node ID allocator
     pub(crate) next_node_id: NodeID,
 }
 
-impl<C, P> EnvMeta<C, Node<P>>
+impl<Data, Ports> EnvMeta<Data, Node<Ports>>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    P: NodePorts,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Ports: NodePorts,
 {
     pub fn get_env_list() -> Result<Vec<EnvName>> {
         let mut list = vec![];
@@ -182,9 +190,11 @@ where
         Ok(list)
     }
 
-    pub fn load_env_by_name<S>(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>>
+    pub fn load_env_by_name<Cmds>(
+        cfg_name: &EnvName,
+    ) -> Result<Option<Env<Data, Ports, Cmds>>>
     where
-        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read_to_string(p) {
@@ -206,35 +216,39 @@ where
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub struct Env<C, P, S>
+pub struct Env<Data, Ports, Cmds>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    P: NodePorts,
-    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Ports: NodePorts,
+    Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
 {
-    pub meta: EnvMeta<C, Node<P>>,
+    pub meta: EnvMeta<Data, Node<Ports>>,
     pub is_protected: bool,
 
     #[serde(rename = "node_options_generator")]
-    pub node_cmd_generator: S,
+    pub node_cmd_generator: Cmds,
 }
 
-impl<C, P, S> Env<C, P, S>
+impl<Data, Ports, Cmds> Env<Data, Ports, Cmds>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    P: NodePorts,
-    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Ports: NodePorts,
+    Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
 {
     // - Initilize a new env
     // - Create `genesis.json`
-    fn create<U>(cfg: &EnvCfg<C, P, U>, opts: &EnvOpts<C>, s: S) -> Result<()>
+    fn create<Ops>(
+        cfg: &EnvCfg<Data, Ports, Ops>,
+        opts: &EnvOpts<Data>,
+        s: Cmds,
+    ) -> Result<()>
     where
-        U: CustomOps,
+        Ops: CustomOps,
     {
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
 
         if opts.force_create {
-            if let Ok(mut env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
+            if let Ok(mut env) = Env::<Data, Ports, Cmds>::load_env_by_cfg(cfg) {
                 env.destroy(true).c(d!())?;
             }
             omit!(fs::remove_dir_all(&home));
@@ -547,8 +561,8 @@ where
     }
 
     // Global alloctor for ports
-    fn alloc_ports(&self, node_kind: &NodeKind) -> Result<P> {
-        let reserved_ports = P::reserved();
+    fn alloc_ports(&self, node_kind: &NodeKind) -> Result<Ports> {
+        let reserved_ports = Ports::reserved();
 
         let mut res = vec![];
 
@@ -577,7 +591,7 @@ where
 
         PortsCache::set(&res).c(d!())?;
 
-        P::try_create(&res).c(d!())
+        Ports::try_create(&res).c(d!())
     }
 
     #[inline(always)]
@@ -723,12 +737,14 @@ where
 
     #[inline(always)]
     pub fn get_env_list() -> Result<Vec<EnvName>> {
-        EnvMeta::<C, Node<P>>::get_env_list().c(d!())
+        EnvMeta::<Data, Node<Ports>>::get_env_list().c(d!())
     }
 
-    fn load_env_by_cfg<U>(cfg: &EnvCfg<C, P, U>) -> Result<Env<C, P, S>>
+    fn load_env_by_cfg<Ops>(
+        cfg: &EnvCfg<Data, Ports, Ops>,
+    ) -> Result<Env<Data, Ports, Cmds>>
     where
-        U: CustomOps,
+        Ops: CustomOps,
     {
         Self::load_env_by_name(&cfg.name)
             .c(d!())
@@ -738,7 +754,7 @@ where
                     let msg = "ENV not found";
                     println!();
                     println!("********************");
-                    println!("\x1b[01mHINTS: \x1b[33;01m{}\x1b[00m", msg);
+                    println!("\x1b[01mHINTCmds: \x1b[33;01m{}\x1b[00m", msg);
                     println!("********************");
                     Err(eg!(msg))
                 }
@@ -746,8 +762,10 @@ where
     }
 
     #[inline(always)]
-    pub fn load_env_by_name(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>> {
-        EnvMeta::<C, Node<P>>::load_env_by_name(cfg_name).c(d!())
+    pub fn load_env_by_name(
+        cfg_name: &EnvName,
+    ) -> Result<Option<Env<Data, Ports, Cmds>>> {
+        EnvMeta::<Data, Node<Ports>>::load_env_by_name(cfg_name).c(d!())
     }
 
     #[inline(always)]
@@ -760,19 +778,19 @@ where
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub struct Node<P: NodePorts> {
+pub struct Node<Ports: NodePorts> {
     pub id: NodeID,
     #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
-    pub ports: P,
+    pub ports: Ports,
 }
 
-impl<P: NodePorts> Node<P> {
-    fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
+impl<Ports: NodePorts> Node<Ports> {
+    fn start<Data, Cmds>(&self, env: &Env<Data, Ports, Cmds>) -> Result<()>
     where
-        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         if env
             .node_cmd_generator
@@ -794,10 +812,10 @@ impl<P: NodePorts> Node<P> {
         }
     }
 
-    fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
+    fn stop<Data, Cmds>(&self, env: &Env<Data, Ports, Cmds>, force: bool) -> Result<()>
     where
-        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         let cmd = env.node_cmd_generator.cmd_for_stop(self, &env.meta, force);
         let outputs = cmd::exec_output(&cmd).c(d!())?;
@@ -808,10 +826,10 @@ impl<P: NodePorts> Node<P> {
     // - Stop the node
     // - Release all occupied ports
     // - Remove all files related to this node
-    fn destroy<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
+    fn destroy<Data, Cmds>(&self, env: &Env<Data, Ports, Cmds>) -> Result<()>
     where
-        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         self.stop(env, true).c(d!())?;
 
@@ -855,13 +873,13 @@ pub enum NodeKind {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub enum Op<C, P, U>
+pub enum Op<Data, Ports, Ops>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    P: NodePorts,
-    U: CustomOps,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Ports: NodePorts,
+    Ops: CustomOps,
 {
-    Create(EnvOpts<C>),
+    Create(EnvOpts<Data>),
     Destroy(bool),    // force or not
     DestroyAll(bool), // force or not
     PushNode(bool),   // for archive node, set `true`; full node set `false`
@@ -875,16 +893,16 @@ where
     Show,
     ShowAll,
     List,
-    Custom(U),
-    Nil(P),
+    Custom(Ops),
+    Nil(Ports),
 }
 
 /// Options specified with the create operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvOpts<C>
+pub struct EnvOpts<Data>
 where
-    C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
     /// Default to '127.0.0.1'
     pub host_ip: String,
@@ -918,9 +936,9 @@ where
     #[serde(default)]
     pub initial_nodes_archive_mode: bool,
 
-    /// Custom data may be useful when cfg/running nodes,
+    /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
-    pub custom_data: C,
+    pub custom_data: Data,
 
     /// Try to destroy env with the same name,
     /// and create a new one

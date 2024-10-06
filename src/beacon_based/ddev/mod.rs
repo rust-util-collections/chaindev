@@ -206,7 +206,7 @@ where
     pub name: EnvName,
 
     /// The data path of this env
-    #[serde(rename = "env_home_dir")]
+    #[serde(rename = "home_dir")]
     pub home: String,
 
     #[serde(rename = "remote_hosts")]
