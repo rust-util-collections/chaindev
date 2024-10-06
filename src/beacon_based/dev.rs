@@ -2,8 +2,6 @@
 //! Localhost version
 //!
 
-#![allow(warnings)]
-
 use nix::{
     sys::socket::{
         self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType, SockaddrIn,
@@ -127,9 +125,15 @@ where
 
     pub nodes: BTreeMap<NodeID, N>,
 
-    /// The genesis tar package, gzip compressed
-    #[serde(rename = "genesis_collections")]
-    pub genesis: Option<GenesisTgz>,
+    /// The network cfg files,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis: Vec<u8>,
+
+    /// The initial validator keys,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis_vkeys: Vec<u8>,
 
     pub custom_data: C,
 
@@ -224,6 +228,18 @@ where
             return Err(eg!("Another env with the same name exists!"));
         }
 
+        let genesis = if let Some(p) = opts.genesis_tgz_path.as_deref() {
+            fs::read(p).c(d!())?
+        } else {
+            vec![]
+        };
+
+        let genesis_vkeys = if let Some(p) = opts.genesis_vkeys_tgz_path.as_deref() {
+            fs::read(p).c(d!())?
+        } else {
+            vec![]
+        };
+
         let mut env = Env {
             meta: EnvMeta {
                 name: cfg.name.clone(),
@@ -232,7 +248,8 @@ where
                 block_itv_secs: opts.block_itv_secs,
                 nodes: Default::default(),
                 bootstraps: Default::default(),
-                genesis: None,
+                genesis,
+                genesis_vkeys,
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
@@ -252,13 +269,13 @@ where
         add_initial_nodes!(NodeKind::Bootstrap);
         for _ in 0..opts.initial_node_num {
             add_initial_nodes!(alt!(
-                opts.initial_nodes_archive,
+                opts.initial_nodes_archive_mode,
                 NodeKind::ArchiveNode,
                 NodeKind::FullNode
             ));
         }
 
-        env.gen_genesis(&opts.egg_path)
+        env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
             .and_then(|_| env.start().c(d!()))
@@ -546,8 +563,22 @@ where
     }
 
     // TODO
-    // call `egg` to generate the genesis data
-    fn gen_genesis(&mut self, egg_path: &str) -> Result<()> {
+    /// If no genesis data set,
+    /// build from scratch using [EGG](https://github.com/NBnet/EGG)
+    fn gen_genesis(&mut self) -> Result<()> {
+        if self.meta.genesis.is_empty() {
+            let tmp_repo = format!("/tmp/egg_{}_{}", ts!(), rand::random::<u16>());
+            let cfgfile = format!("{tmp_repo}/custom.env");
+
+            // clone repo
+            // replace block itv to meta.block_itv_secs
+            // build genesis data
+            // set generated data to ENV
+        } else {
+            // extract the tar.gz,
+            // update the block_itv_secs to the value in the genesis
+        }
+
         todo!()
     }
 
@@ -746,17 +777,23 @@ where
     /// Seconds between two blocks
     pub block_itv_secs: BlockItv,
 
+    /// The network cfg files,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis_tgz_path: Option<String>,
+
+    /// The initial validator keys,
+    /// a gzip compressed tar package
+    #[serde(default)]
+    pub genesis_vkeys_tgz_path: Option<String>,
+
     /// How many initial nodes should be created,
-    /// default to 4(include the bootstrap node)
+    /// including the bootstrap node
     pub initial_node_num: u8,
 
-    /// Set as full nodes by default
+    /// Set nodes as full node by default
     #[serde(default)]
-    pub initial_nodes_archive: bool,
-
-    /// EGG, Eth-Genesis-Generator,
-    /// - https://github.com/NBnet/EGG
-    pub egg_path: String,
+    pub initial_nodes_archive_mode: bool,
 
     /// Some custom data may be useful when running nodes,
     /// such as the info about execution client(reth or geth)
