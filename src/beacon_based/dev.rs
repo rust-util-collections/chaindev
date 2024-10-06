@@ -119,7 +119,7 @@ where
     #[serde(rename = "home_dir")]
     pub home: String,
 
-    /// eg.
+    /// Eg.
     /// - "127.0.0.1"
     /// - "localhost"
     pub host_ip: String,
@@ -132,17 +132,14 @@ where
     ///
     /// Format:
     /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
-    #[serde(default)]
-    pub genesis_custom_settings: String,
+    pub genesis_pre_settings: String,
 
     /// The network cfg files,
     /// a gzip compressed tar package
-    #[serde(default)]
     pub genesis: Vec<u8>,
 
     /// The initial validator keys,
     /// a gzip compressed tar package
-    #[serde(default)]
     pub genesis_vkeys: Vec<u8>,
 
     /// The first Bootstrap node
@@ -225,8 +222,8 @@ where
     pub meta: EnvMeta<Data, Node<Ports>>,
     pub is_protected: bool,
 
-    #[serde(rename = "node_options_generator")]
-    pub node_cmd_generator: Cmds,
+    #[serde(rename = "node_cmdline_generator")]
+    pub node_cmdline_generator: Cmds,
 }
 
 impl<Data, Ports, Cmds> Env<Data, Ports, Cmds>
@@ -276,7 +273,7 @@ where
                 home,
                 host_ip: opts.host_ip.clone(),
                 block_itv: opts.block_itv,
-                genesis_custom_settings: opts.genesis_custom_settings.clone(),
+                genesis_pre_settings: opts.genesis_pre_settings.clone(),
                 genesis,
                 genesis_vkeys,
                 nodes: Default::default(),
@@ -286,7 +283,7 @@ where
                 next_node_id: Default::default(),
             },
             is_protected: true,
-            node_cmd_generator: s,
+            node_cmdline_generator: s,
         };
 
         fs::create_dir_all(&env.meta.home).c(d!())?;
@@ -325,12 +322,11 @@ where
         }
 
         // DO NOT USE `node.destroy(...)` here,
-        // we should NOT wait 100ms for every node,
-        // one time is enough!
+        // we should NOT waste(dup) time for each node
         info_omit!(self.stop(None, true));
 
         // Wait all nodes to be actually stopped
-        sleep_ms!(100);
+        sleep_ms!(200);
 
         for n in self
             .meta
@@ -349,14 +345,14 @@ where
         for name in Self::get_env_list().c(d!())?.iter() {
             let mut env = Self::load_env_by_name(name)
                 .c(d!())?
-                .c(d!("BUG: env recorded but not found !!"))?;
+                .c(d!("BUG: the ENV recorded, but not found"))?;
             env.destroy(force).c(d!())?;
         }
 
         Ok(())
     }
 
-    // bootstrap nodes are kept by system for now,
+    // Bootstrap nodes are kept by system for now,
     // so only the other nodes can be added on demand
     fn push_node(&mut self, kind: NodeKind) -> Result<()> {
         let id = self.next_node_id();
@@ -385,10 +381,10 @@ where
                 .rev()
                 .copied()
                 .next()
-                .c(d!("No non-bootstrap node found"))?
+                .c(d!("No kickable nodes found"))?
         };
 
-        self.update_peer_status(&[], &[id]);
+        self.update_online_status(&[], &[id]);
 
         self.meta
             .nodes
@@ -429,7 +425,7 @@ where
                 .collect()
         });
 
-        self.update_peer_status(&ids, &[]); // self.write_cfg().c(d!())?;
+        self.update_online_status(&ids, &[]); // self.write_cfg().c(d!())?;
 
         for i in ids.iter() {
             if let Some(n) = self
@@ -472,12 +468,12 @@ where
             {
                 n.stop(self, force)
                     .c(d!())
-                    .map(|_| self.update_peer_status(&[], &[id]))
+                    .map(|_| self.update_online_status(&[], &[id]))
             } else {
                 Err(eg!("The target node not found"))
             }
         } else {
-            // Need NOT to call the `update_peer_status`
+            // Need NOT to call the `update_online_status`
             // for an entire stopped ENV, meaningless
             self.meta
                 .bootstraps
@@ -595,7 +591,7 @@ where
     }
 
     #[inline(always)]
-    fn update_peer_status(&mut self, nodes_in: &[NodeID], nodes_out: &[NodeID]) {
+    fn update_online_status(&mut self, nodes_in: &[NodeID], nodes_out: &[NodeID]) {
         nodes_in.iter().copied().for_each(|id| {
             self.meta.nodes_should_be_online.insert(id);
         });
@@ -632,8 +628,8 @@ where
                 format!("git clone https://github.com/NBnet/EGG {repo} || exit 1");
             cmd::exec_output(&gitcmd).c(d!())?;
 
-            if !self.meta.genesis_custom_settings.is_empty() {
-                fs::write(&cfg, self.meta.genesis_custom_settings.as_bytes()).c(d!())?;
+            if !self.meta.genesis_pre_settings.is_empty() {
+                fs::write(&cfg, self.meta.genesis_pre_settings.as_bytes()).c(d!())?;
             }
 
             let cmd = format!(
@@ -661,7 +657,7 @@ where
         } else {
             if self.meta.genesis_vkeys.is_empty() {
                 return Err(eg!(
-                    "BUG: validator data should be set with the genesis together"
+                    "Validator keys should always be set with the genesis data"
                 ));
             }
 
@@ -689,6 +685,7 @@ where
         }
 
         omit!(fs::remove_dir_all(&tmpdir));
+
         Ok(())
     }
 
@@ -697,7 +694,7 @@ where
     // - extract it
     fn apply_genesis(&mut self, id: Option<NodeID>) -> Result<()> {
         if self.meta.genesis.is_empty() || self.meta.genesis_vkeys.is_empty() {
-            return Err(eg!("BUG: no genesis"));
+            return Err(eg!("BUG: no genesis data"));
         }
 
         let nodes = if let Some(id) = id {
@@ -718,17 +715,20 @@ where
         let genesis_node_id = *self.meta.bootstraps.keys().next().c(d!())?;
 
         let mut p;
+        let mut cmd;
         for n in nodes.iter() {
             p = format!("{}/genesis.tar.gz", n.home.as_str());
+            cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
             fs::write(&p, &self.meta.genesis)
                 .c(d!())
-                .and_then(|_| cmd::exec_output(&format!("tar -xpf {p}")).c(d!()))?;
+                .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
 
             if n.id == genesis_node_id {
                 p = format!("{}/vcdata.tar.gz", n.home.as_str());
+                cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
                 fs::write(&p, &self.meta.genesis_vkeys)
                     .c(d!())
-                    .and_then(|_| cmd::exec_output(&format!("tar -xpf {p}")).c(d!()))?;
+                    .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
             }
         }
 
@@ -793,7 +793,7 @@ impl<Ports: NodePorts> Node<Ports> {
         Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         if env
-            .node_cmd_generator
+            .node_cmdline_generator
             .cmd_is_running(self, &env.meta)
             .c(d!())?
         {
@@ -802,7 +802,7 @@ impl<Ports: NodePorts> Node<Ports> {
 
         match unsafe { unistd::fork() } {
             Ok(ForkResult::Child) => {
-                let cmd = env.node_cmd_generator.cmd_for_start(self, &env.meta);
+                let cmd = env.node_cmdline_generator.cmd_for_start(self, &env.meta);
                 pnk!(self.write_dev_log(&cmd));
                 pnk!(exec_spawn(&cmd));
                 exit(0);
@@ -817,7 +817,9 @@ impl<Ports: NodePorts> Node<Ports> {
         Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
-        let cmd = env.node_cmd_generator.cmd_for_stop(self, &env.meta, force);
+        let cmd = env
+            .node_cmdline_generator
+            .cmd_for_stop(self, &env.meta, force);
         let outputs = cmd::exec_output(&cmd).c(d!())?;
         let contents = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&contents).c(d!())
@@ -904,28 +906,25 @@ pub struct EnvOpts<Data>
 where
     Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
-    /// Default to '127.0.0.1'
+    /// Eg.
+    /// - '127.0.0.1'
     pub host_ip: String,
 
-    /// Seconds between two blocks
-    #[serde(default)]
+    /// Seconds between two blocks, aka BlockTime
     pub block_itv: BlockItv,
 
     /// The contents of a EGG custom.env,
     ///
     /// Format:
     /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
-    #[serde(default)]
-    pub genesis_custom_settings: String,
+    pub genesis_pre_settings: String,
 
     /// The network cfg files,
     /// a gzip compressed tar package
-    #[serde(default)]
     pub genesis_tgz_path: Option<String>,
 
     /// The initial validator keys,
     /// a gzip compressed tar package
-    #[serde(default)]
     pub genesis_vkeys_tgz_path: Option<String>,
 
     /// How many initial nodes should be created,
@@ -933,7 +932,6 @@ where
     pub initial_node_num: u8,
 
     /// Set nodes as full node by default
-    #[serde(default)]
     pub initial_nodes_archive_mode: bool,
 
     /// Data data may be useful when cfg/running nodes,
