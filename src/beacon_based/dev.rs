@@ -115,7 +115,7 @@ where
 
     /// Seconds between two blocks
     #[serde(rename = "block_interval_in_seconds")]
-    pub block_itv_secs: BlockItv,
+    pub block_itv: BlockItv,
 
     /// The first Bootstrap node
     /// will be treated as the genesis node
@@ -244,7 +244,7 @@ where
                 name: cfg.name.clone(),
                 home,
                 host_ip: opts.host_ip.clone(),
-                block_itv_secs: opts.block_itv_secs,
+                block_itv: opts.block_itv,
                 nodes: Default::default(),
                 bootstraps: Default::default(),
                 genesis,
@@ -567,24 +567,66 @@ where
         ret
     }
 
-    // TODO
     /// If no genesis data set,
     /// build from scratch using [EGG](https://github.com/NBnet/EGG)
     fn gen_genesis(&mut self) -> Result<()> {
-        if self.meta.genesis.is_empty() {
-            let tmp_repo = format!("/tmp/egg_{}_{}", ts!(), rand::random::<u16>());
-            let cfgfile = format!("{tmp_repo}/custom.env");
+        let tmpdir = format!("/tmp/egg_{}_{}", ts!(), rand::random::<u16>());
+        omit!(fs::remove_dir_all(&tmpdir));
+        fs::create_dir_all(&tmpdir).c(d!())?;
 
+        if self.meta.genesis.is_empty() {
             // clone repo
-            // replace block itv to meta.block_itv_secs
+            // custom cfg, eg. block itv
             // build genesis data
             // set generated data to ENV
+
+            let repo = format!("{tmpdir}/egg");
+            let cfgfile = format!("{repo}/custom.env");
+
+            let cmd = format!(
+                r#"
+                git clone https://github.com/NBnet/EGG {repo} || exit 1
+                cd {repo} || exit 1
+                sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfgfile} || exit 1
+                sed -i 's/^.*\(SLOT_DURATION_IN_SECONDS\).*$/export \1="{}"/' {cfgfile} || exit 1
+                make minimal_prepare || exit 1
+                make build
+                "#,
+                self.meta.block_itv
+            );
+
+            cmd::exec_output(&cmd).c(d!())?;
+
+            self.meta.genesis =
+                fs::read(format!("{repo}/data/genesis.tar.gz")).c(d!())?;
+            self.meta.genesis_vkeys =
+                fs::read(format!("{repo}/data/vcdata.tar.gz")).c(d!())?;
         } else {
             // extract the tar.gz,
-            // update the block_itv_secs to the value in the genesis
+            // update the `block itv` to the value in the genesis
+
+            let genesis = format!("{tmpdir}/genesis.tar.gz");
+            let yml = format!("{tmpdir}/config.yaml");
+            let cmd = format!("tar -xpf {genesis} && cp ${tmpdir}/*/config.yaml {yml}");
+            fs::write(&genesis, &self.meta.genesis)
+                .c(d!())
+                .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
+
+            let ymlhdr = fs::read(&yml)
+                .c(d!())
+                .and_then(|c| serde_yml::from_slice::<serde_yml::Value>(&c).c(d!()))?;
+
+            self.meta.block_itv = u16::try_from(max!(
+                ymlhdr["SECONDS_PER_SLOT"].as_u64().c(d!())?,
+                ymlhdr["SECONDS_PER_ETH1_BLOCK"].as_u64().c(d!())?,
+            ))
+            .c(d!())?;
+
+            self.write_cfg().c(d!())?;
         }
 
-        todo!()
+        omit!(fs::remove_dir_all(&tmpdir));
+        Ok(())
     }
 
     // Apply genesis to node[s]:
@@ -799,7 +841,7 @@ where
     pub host_ip: String,
 
     /// Seconds between two blocks
-    pub block_itv_secs: BlockItv,
+    pub block_itv: BlockItv,
 
     /// The network cfg files,
     /// a gzip compressed tar package
@@ -819,7 +861,7 @@ where
     #[serde(default)]
     pub initial_nodes_archive_mode: bool,
 
-    /// Some custom data may be useful when running nodes,
+    /// Custom data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
     pub custom_data: C,
 
