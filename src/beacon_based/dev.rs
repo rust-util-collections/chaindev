@@ -56,7 +56,7 @@ where
             Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
             Op::Destroy(force) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.destroy(*force).c(d!())),
+                .and_then(|mut env| env.destroy(*force).c(d!())),
             Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
             Op::PushNode(is_archive) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
@@ -83,7 +83,7 @@ where
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
             Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.stop(*node_id, *force).c(d!())),
+                .and_then(|mut env| env.stop(*node_id, *force).c(d!())),
             Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
@@ -111,6 +111,9 @@ where
     #[serde(rename = "env_home_dir")]
     pub home: String,
 
+    /// eg.
+    /// - "127.0.0.1"
+    /// - "localhost"
     pub host_ip: String,
 
     /// Seconds between two blocks
@@ -139,11 +142,18 @@ where
     #[serde(rename = "bootstrap_nodes")]
     pub bootstraps: BTreeMap<NodeID, N>,
 
+    /// Non-bootstrap node collection
     pub nodes: BTreeMap<NodeID, N>,
 
+    /// An in-memory cache for recording node status
+    #[serde(skip)]
+    pub nodes_should_be_online: BTreeSet<NodeID>,
+
+    /// Custom data may be useful when cfg/running nodes,
+    /// such as the info about execution client(reth or geth)
     pub custom_data: C,
 
-    // The latest id of current nodes
+    /// Node ID allocator
     pub(crate) next_node_id: NodeID,
 }
 
@@ -224,7 +234,7 @@ where
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
 
         if opts.force_create {
-            if let Ok(env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
+            if let Ok(mut env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
                 env.destroy(true).c(d!())?;
             }
             omit!(fs::remove_dir_all(&home));
@@ -256,6 +266,7 @@ where
                 genesis,
                 genesis_vkeys,
                 nodes: Default::default(),
+                nodes_should_be_online: Default::default(),
                 bootstraps: Default::default(),
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
@@ -291,7 +302,7 @@ where
     // Destroy all nodes
     // - Stop all running processes
     // - Delete the data of every nodes
-    fn destroy(&self, force: bool) -> Result<()> {
+    fn destroy(&mut self, force: bool) -> Result<()> {
         if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -322,7 +333,7 @@ where
     // destroy all existing ENVs
     fn destroy_all(force: bool) -> Result<()> {
         for name in Self::get_env_list().c(d!())?.iter() {
-            let env = Self::load_env_by_name(name)
+            let mut env = Self::load_env_by_name(name)
                 .c(d!())?
                 .c(d!("BUG: env recorded but not found !!"))?;
             env.destroy(force).c(d!())?;
@@ -360,8 +371,10 @@ where
                 .rev()
                 .copied()
                 .next()
-                .c(d!("no node found"))?
+                .c(d!("No non-bootstrap node found"))?
         };
+
+        self.update_peer_status(&[], &[id]);
 
         self.meta
             .nodes
@@ -402,9 +415,7 @@ where
                 .collect()
         });
 
-        self.update_peer_cfg()
-            .c(d!())
-            .and_then(|_| self.write_cfg().c(d!()))?;
+        self.update_peer_status(&ids, &[]); // self.write_cfg().c(d!())?;
 
         for i in ids.iter() {
             if let Some(n) = self
@@ -437,24 +448,31 @@ where
     // - Stop all processes
     // - Release all occupied ports
     #[inline(always)]
-    fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
-        let mut nodes = self
-            .meta
-            .bootstraps
-            .values()
-            .chain(self.meta.nodes.values());
-
-        let nodes = if let Some(id) = n {
-            vec![nodes.find(|n| n.id == id).c(d!())?]
+    fn stop(&mut self, n: Option<NodeID>, force: bool) -> Result<()> {
+        if let Some(id) = n {
+            if let Some(n) = self
+                .meta
+                .nodes
+                .get(&id)
+                .or_else(|| self.meta.bootstraps.get(&id))
+            {
+                n.stop(self, force)
+                    .c(d!())
+                    .map(|_| self.update_peer_status(&[], &[id]))
+            } else {
+                Err(eg!("The target node not found"))
+            }
         } else {
-            nodes.collect::<Vec<_>>()
-        };
-
-        nodes
-            .into_iter()
-            .map(|n| n.stop(self, force).c(d!()))
-            .collect::<Result<Vec<_>>>()
-            .map(|_| ())
+            // Need NOT to call the `update_peer_status`
+            // for an entire stopped ENV, meaningless
+            self.meta
+                .bootstraps
+                .values()
+                .chain(self.meta.nodes.values())
+                .map(|n| n.stop(self, force).c(d!()))
+                .collect::<Result<Vec<_>>>()
+                .map(|_| ())
+        }
     }
 
     // Stop all existing ENVs
@@ -562,10 +580,15 @@ where
         P::try_create(&res).c(d!())
     }
 
-    // fix me ?
     #[inline(always)]
-    fn update_peer_cfg(&self) -> Result<()> {
-        Ok(())
+    fn update_peer_status(&mut self, nodes_in: &[NodeID], nodes_out: &[NodeID]) {
+        nodes_in.iter().copied().for_each(|id| {
+            self.meta.nodes_should_be_online.insert(id);
+        });
+
+        nodes_out.iter().for_each(|id| {
+            self.meta.nodes_should_be_online.remove(id);
+        });
     }
 
     // Allocate unique IDs for nodes within the scope of an env
