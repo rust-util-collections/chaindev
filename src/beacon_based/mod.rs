@@ -4,5 +4,5 @@
 
 pub mod common;
 
-// pub mod ddev;
+pub mod ddev;
 pub mod dev;

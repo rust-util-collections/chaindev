@@ -221,8 +221,6 @@ where
 {
     pub meta: EnvMeta<Data, Node<Ports>>,
     pub is_protected: bool,
-
-    #[serde(rename = "node_cmdline_generator")]
     pub node_cmdline_generator: Cmds,
 }
 
@@ -276,9 +274,9 @@ where
                 genesis_pre_settings: opts.genesis_pre_settings.clone(),
                 genesis,
                 genesis_vkeys,
+                bootstraps: Default::default(),
                 nodes: Default::default(),
                 nodes_should_be_online: Default::default(),
-                bootstraps: Default::default(),
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
@@ -497,6 +495,7 @@ where
         Ok(())
     }
 
+    #[inline(always)]
     fn show(&self) {
         println!("{}", pnk!(serde_json::to_string_pretty(self)));
     }
@@ -530,16 +529,19 @@ where
         Ok(())
     }
 
-    // 1. Allocate ports
+    // 1. Allocate home dir, ports ..
     // 2. Record the node in its ENV meta
     fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
         // 1.
+        let home = format!("{}/{}", &self.meta.home, id);
+        fs::create_dir_all(&home).c(d!())?;
+
         let ports = self.alloc_ports(&kind).c(d!())?;
 
         // 2.
         let node = Node {
             id,
-            home: format!("{}/{}", &self.meta.home, id),
+            home,
             kind,
             ports,
         };
@@ -602,14 +604,15 @@ where
     }
 
     // Allocate unique IDs for nodes within the scope of an env
+    #[inline(always)]
     fn next_node_id(&mut self) -> NodeID {
         let ret = self.meta.next_node_id;
         self.meta.next_node_id += 1;
         ret
     }
 
-    /// If no genesis data set,
-    /// build from scratch using [EGG](https://github.com/NBnet/EGG)
+    // If no genesis data set,
+    // build from scratch using [EGG](https://github.com/NBnet/EGG)
     fn gen_genesis(&mut self) -> Result<()> {
         let tmpdir = format!("/tmp/egg_{}_{}", ts!(), rand::random::<u16>());
         omit!(fs::remove_dir_all(&tmpdir));
@@ -864,13 +867,6 @@ impl<Ports: NodePorts> Node<Ports> {
         }
         fs::remove_dir_all(&self.home).c(d!())
     }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-pub enum NodeKind {
-    Bootstrap,
-    ArchiveNode,
-    FullNode,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -2,29 +2,22 @@
 //! Distributed version
 //!
 
-mod host;
-mod remote;
+pub mod host;
+pub mod remote;
 
 use crate::check_errlist;
-use beacon::{validator::Info as TmValidator, vote::Power as TmPower, Genesis};
-use beacon_config::{
-    NodeKey, PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
-};
-use host::{HostMeta, HostOS};
+use host::HostMeta;
 use rand::random;
 use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
     io::ErrorKind,
-    path::PathBuf,
     sync::LazyLock,
     thread,
 };
-use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 use vsdb::MapxOrd;
 
 pub use super::common::*;
@@ -35,9 +28,8 @@ static GLOBAL_BASE_DIR: LazyLock<String> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvCfg<A, C, P, U>
+pub struct EnvCfg<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
@@ -46,29 +38,36 @@ where
     pub name: EnvName,
 
     /// Which operation to trigger/call
-    pub op: Op<A, C, P, U>,
+    pub op: Op<C, P, U>,
 }
 
-impl<A, C, P, U> EnvCfg<A, C, P, U>
+impl<C, P, U> EnvCfg<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
 {
     pub fn exec<S>(&self, s: S) -> Result<()>
     where
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
             Op::Create(envopts) => Env::<C, P, S>::create(self, envopts, s).c(d!()),
             Op::Destroy(force) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.destroy(*force).c(d!())),
+                .and_then(|mut env| env.destroy(*force).c(d!())),
             Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
-            Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| env.push_node(host_addr.as_ref()).c(d!())),
+            Op::PushNode((host_addr, is_archive)) => {
+                Env::<C, P, S>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|mut env| {
+                        env.push_node(
+                            alt!(*is_archive, NodeKind::ArchiveNode, NodeKind::FullNode),
+                            host_addr.as_ref(),
+                        )
+                        .c(d!())
+                    })
+            }
             Op::MigrateNode((node_id, host_addr)) => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
@@ -97,7 +96,7 @@ where
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
             Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.stop(*node_id, *force).c(d!())),
+                .and_then(|mut env| env.stop(*node_id, *force).c(d!())),
             Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
@@ -173,21 +172,6 @@ where
                         })
                 }
             }
-            Op::NodeCollectLogs { local_base_dir } => {
-                Env::<C, P, S>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|env| {
-                        env.nodes_collect_logs(local_base_dir.as_deref()).c(d!())
-                    })
-            }
-            Op::NodeCollectConfigurations { local_base_dir } => {
-                Env::<C, P, S>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|env| {
-                        env.nodes_collect_configurations(local_base_dir.as_deref())
-                            .c(d!())
-                    })
-            }
             Op::Custom(custom_op) => custom_op.exec(&self.name).c(d!()),
             Op::Nil(_) => unreachable!(),
         }
@@ -212,33 +196,41 @@ where
     #[serde(rename = "remote_hosts")]
     pub hosts: Hosts,
 
-    #[serde(rename = "app_bin")]
-    pub app_bin: String,
-
-    pub app_extra_opts: String,
-
-    #[serde(rename = "beacon_bin")]
-    pub beacon_bin: String,
-
-    pub beacon_extra_opts: String,
-
     /// Seconds between two blocks
-    #[serde(rename = "block_interval_in_seconds")]
-    pub block_itv_secs: BlockItv,
+    #[serde(rename = "block_time_in_seconds")]
+    pub block_itv: BlockItv,
 
+    /// The contents of a EGG custom.env,
+    ///
+    /// Format:
+    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    pub genesis_pre_settings: String,
+
+    /// The network cfg files,
+    /// a gzip compressed tar package
+    pub genesis: Vec<u8>,
+
+    /// The initial validator keys,
+    /// a gzip compressed tar package
+    pub genesis_vkeys: Vec<u8>,
+
+    /// The first Bootstrap node
+    /// will be treated as the genesis node
     #[serde(rename = "bootstrap_nodes")]
     pub bootstraps: BTreeMap<NodeID, N>,
 
-    #[serde(rename = "validator_or_full_nodes")]
+    /// Non-bootstrap node collection
     pub nodes: BTreeMap<NodeID, N>,
 
-    /// The contents of `genesis.json` of all nodes
-    #[serde(rename = "beacon_genesis")]
-    pub genesis: Option<Genesis>,
+    /// An in-memory cache for recording node status
+    #[serde(skip)]
+    pub nodes_should_be_online: BTreeSet<NodeID>,
 
+    /// Data data may be useful when cfg/running nodes,
+    /// such as the info about execution client(reth or geth)
     pub custom_data: C,
 
-    // The latest id of current nodes
+    /// Node ID allocator
     pub(crate) next_node_id: NodeID,
 }
 
@@ -269,7 +261,7 @@ where
 
     pub fn load_env_by_name<S>(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>>
     where
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read(p) {
@@ -296,32 +288,29 @@ pub struct Env<C, P, S>
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     pub meta: EnvMeta<C, Node<P>>,
     pub is_protected: bool,
-
-    #[serde(rename = "node_options_generator")]
-    pub node_opts_generator: S,
+    pub node_cmdline_generator: S,
 }
 
 impl<C, P, S> Env<C, P, S>
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     // - Initilize a new env
     // - Create `genesis.json`
-    fn create<A, U>(cfg: &EnvCfg<A, C, P, U>, opts: &EnvOpts<A, C>, s: S) -> Result<()>
+    fn create<U>(cfg: &EnvCfg<C, P, U>, opts: &EnvOpts<C>, s: S) -> Result<()>
     where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         U: CustomOps,
     {
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
 
         if opts.force_create {
-            if let Ok(env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
+            if let Ok(mut env) = Env::<C, P, S>::load_env_by_cfg(cfg) {
                 env.destroy(true).c(d!())?;
             }
 
@@ -368,24 +357,35 @@ where
             return Err(eg!("Another env with the same name exists!"));
         }
 
+        let genesis = if let Some(p) = opts.genesis_tgz_path.as_deref() {
+            fs::read(p).c(d!())?
+        } else {
+            vec![]
+        };
+
+        let genesis_vkeys = if let Some(p) = opts.genesis_vkeys_tgz_path.as_deref() {
+            fs::read(p).c(d!())?
+        } else {
+            vec![]
+        };
+
         let mut env = Env {
             meta: EnvMeta {
                 name: cfg.name.clone(),
                 home,
                 hosts: opts.hosts.clone(),
-                app_bin: opts.app_bin.clone(),
-                app_extra_opts: opts.app_extra_opts.clone(),
-                beacon_bin: opts.beacon_bin.clone(),
-                beacon_extra_opts: opts.beacon_extra_opts.clone(),
-                block_itv_secs: opts.block_itv_secs,
-                nodes: Default::default(),
+                block_itv: opts.block_itv,
+                genesis_pre_settings: opts.genesis_pre_settings.clone(),
+                genesis,
+                genesis_vkeys,
                 bootstraps: Default::default(),
-                genesis: None,
+                nodes: Default::default(),
+                nodes_should_be_online: Default::default(),
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
             is_protected: true,
-            node_opts_generator: s,
+            node_cmdline_generator: s,
         };
 
         fs::create_dir_all(&env.meta.home).c(d!()).and_then(|_| {
@@ -412,18 +412,22 @@ where
         })?;
 
         macro_rules! add_initial_nodes {
-            ($kind: tt) => {{
+            ($kind: expr) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, NodeKind::$kind, None).c(d!())?;
+                env.alloc_resources(id, $kind, None).c(d!())?;
             }};
         }
 
-        add_initial_nodes!(Bootstrap);
-        for _ in 0..opts.initial_validator_num {
-            add_initial_nodes!(Node);
+        add_initial_nodes!(NodeKind::Bootstrap);
+        for _ in 0..opts.initial_node_num {
+            add_initial_nodes!(alt!(
+                opts.initial_nodes_archive_mode,
+                NodeKind::ArchiveNode,
+                NodeKind::FullNode
+            ));
         }
 
-        env.gen_genesis(&opts.app_state)
+        env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
             .and_then(|_| env.start(None).c(d!()))
@@ -432,7 +436,7 @@ where
     // Destroy all nodes
     // - Stop all running processes
     // - Delete the data of every nodes
-    fn destroy(&self, force: bool) -> Result<()> {
+    fn destroy(&mut self, force: bool) -> Result<()> {
         if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -449,7 +453,7 @@ where
                 .bootstraps
                 .values()
                 .chain(self.meta.nodes.values())
-                .map(|n| s.spawn(|| n.clean().c(d!())))
+                .map(|n| s.spawn(|| n.clean_up().c(d!())))
                 .collect::<Vec<_>>();
             hdrs.into_iter()
                 .flat_map(|h| h.join())
@@ -468,11 +472,9 @@ where
                 .as_ref()
                 .values()
                 .map(|h| {
-                    s.spawn(move || {
-                        let remote = Remote::from(h);
-                        let cmd = format!("rm -rf {}", &self.meta.home);
-                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
-                    })
+                    let remote = Remote::from(h);
+                    let cmd = format!("rm -rf {}", &self.meta.home);
+                    s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
                 })
                 .collect::<Vec<_>>();
             hdrs.into_iter()
@@ -487,7 +489,7 @@ where
     // Destroy all existing ENVs
     fn destroy_all(force: bool) -> Result<()> {
         for name in Self::get_env_list().c(d!())?.iter() {
-            let env = Self::load_env_by_name(name)
+            let mut env = Self::load_env_by_name(name)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?;
 
@@ -502,8 +504,14 @@ where
         Ok(())
     }
 
-    fn push_node(&mut self, host_addr: Option<&HostAddr>) -> Result<()> {
-        self.push_node_data(NodeKind::Node, host_addr)
+    // Bootstrap nodes are kept by system for now,
+    // so only the other nodes can be added on demand
+    fn push_node(
+        &mut self,
+        node_kind: NodeKind,
+        host_addr: Option<&HostAddr>,
+    ) -> Result<()> {
+        self.push_node_data(node_kind, host_addr)
             .c(d!())
             .and_then(|id| self.start(Some(id)).c(d!()))
     }
@@ -583,7 +591,7 @@ where
             .or_else(|| self.meta.nodes.get(&node_id))
             .c(d!("BUG"))
             .and_then(|node| {
-                node.migrate(new_base).c(d!()).and_then(|_| {
+                node.migrate(new_base, self).c(d!()).and_then(|_| {
                     self.apply_resources(
                         node.id,
                         node.kind,
@@ -594,10 +602,13 @@ where
                 })
             })?;
 
-        self.kick_node(Some(node_id)).c(d!())
+        self.kick_node(Some(node_id))
+            .c(d!())
+            .and_then(|_| self.start(Some(new_node_id)).c(d!()))
     }
 
-    // The bootstrap node should not be removed
+    // Kick out a target node, or a randomly selected one,
+    // NOTE: the bootstrap node will never be kicked
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
@@ -618,6 +629,8 @@ where
                 .c(d!("no node found"))?
         };
 
+        self.update_online_status(&[], &[id]);
+
         self.meta
             .nodes
             .remove(&id)
@@ -630,7 +643,9 @@ where
                     .get_mut(&n.host.addr)
                     .unwrap()
                     .node_cnt -= 1;
-                n.stop(true).c(d!()).and_then(|_| n.clean().c(d!()))
+                n.stop(self, true)
+                    .c(d!())
+                    .and_then(|_| n.clean_up().c(d!()))
             })
             .and_then(|_| self.write_cfg().c(d!()))
     }
@@ -712,9 +727,7 @@ where
                 .collect()
         });
 
-        self.update_peer_cfg()
-            .c(d!())
-            .and_then(|_| self.write_cfg().c(d!()))?;
+        self.update_online_status(&ids, &[]); // self.write_cfg().c(d!())?;
 
         let errlist = thread::scope(|s| {
             let mut hdrs = vec![];
@@ -756,31 +769,39 @@ where
 
     // - Stop all processes
     // - Release all occupied ports
-    fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
-        let mut nodes = self
-            .meta
-            .bootstraps
-            .values()
-            .chain(self.meta.nodes.values());
-
-        let nodes = if let Some(id) = n {
-            vec![nodes.find(|n| n.id == id).c(d!())?]
+    fn stop(&mut self, n: Option<NodeID>, force: bool) -> Result<()> {
+        if let Some(id) = n {
+            if let Some(n) = self
+                .meta
+                .nodes
+                .get(&id)
+                .or_else(|| self.meta.bootstraps.get(&id))
+            {
+                n.stop(self, force)
+                    .c(d!(&n.host.addr))
+                    .map(|_| self.update_online_status(&[], &[id]))
+            } else {
+                Err(eg!("The target node not found"))
+            }
         } else {
-            nodes.collect::<Vec<_>>()
-        };
+            // Need NOT to call the `update_online_status`
+            // for an entire stopped ENV, meaningless
+            let errlist = thread::scope(|s| {
+                let hdrs = self
+                    .meta
+                    .bootstraps
+                    .values()
+                    .chain(self.meta.nodes.values())
+                    .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
+                    .collect::<Vec<_>>();
+                hdrs.into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .collect::<Vec<_>>()
+            });
 
-        let errlist = thread::scope(|s| {
-            let hdrs = nodes
-                .into_iter()
-                .map(|n| s.spawn(|| info!(n.stop(force), &n.host.addr)))
-                .collect::<Vec<_>>();
-            hdrs.into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .collect::<Vec<_>>()
-        });
-
-        check_errlist!(errlist)
+            check_errlist!(errlist)
+        }
     }
 
     // Stop all existing ENVs
@@ -795,8 +816,9 @@ where
         Ok(())
     }
 
+    #[inline(always)]
     fn show(&self) {
-        dbg!(self);
+        println!("{}", pnk!(serde_json::to_string_pretty(self)));
     }
 
     // Show the details of all existing ENVs
@@ -848,20 +870,9 @@ where
         remote::exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
     }
 
-    #[inline(always)]
-    fn nodes_collect_logs(&self, local_base_dir: Option<&str>) -> Result<()> {
-        remote::collect_logs_from_nodes(self, local_base_dir).c(d!())
-    }
-
-    #[inline(always)]
-    fn nodes_collect_configurations(&self, local_base_dir: Option<&str>) -> Result<()> {
-        remote::collect_tgz_from_nodes(self, &["config"], local_base_dir).c(d!())
-    }
-
     // 1. Allocate host and ports
-    // 2. Change configs: ports, bootstrap address, etc
-    // 3. Write new configs of beacon to local/remote disk
-    // 4. Insert new node to the meta of env
+    // 2. Create remote home dir
+    // 3. Insert new node to the meta of env
     fn alloc_resources(
         &mut self,
         id: NodeID,
@@ -871,16 +882,19 @@ where
         self.alloc_hosts_ports(&kind, host_addr) // 1.
             .c(d!())
             .and_then(|(host, ports)| {
-                self.apply_resources(id, kind, host, ports).c(d!()) // 2. 3. 4.
+                self.apply_resources(id, kind, host, ports).c(d!()) // 2.
             })
             .map(|node| {
                 match kind {
+                    NodeKind::FullNode | NodeKind::ArchiveNode => {
+                        self.meta.nodes.insert(id, node)
+                    }
                     NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
-                    NodeKind::Node => self.meta.nodes.insert(id, node),
                 };
-            })
+            }) // .and_then(|_| self.write_cfg().c(d!()))
     }
 
+    #[inline(always)]
     fn apply_resources(
         &self,
         id: NodeID,
@@ -888,314 +902,165 @@ where
         host: HostMeta,
         ports: P,
     ) -> Result<Node<P>> {
-        let remote = Remote::from(&host);
-
-        // 2.
         let home = format!("{}/{}", self.meta.home, id);
-        remote.exec_cmd(&format!("mkdir -p {}", &home)).c(d!())?;
-
-        let cfgfile = format!("{}/config/config.toml", &home);
-        let cmd = format!(
-            "chmod +x {0} && {0} init --home {1} && rm -f {1}/config/addrbook.json",
-            &self.meta.beacon_bin, &home
-        );
-        let mut cfg = remote
-            .exec_cmd(&cmd)
-            .c(d!(cmd))
-            .and_then(|_| remote.read_file(&cfgfile).c(d!(cfgfile)))
-            .and_then(|c| c.parse::<Document>().c(d!()))?;
-
-        cfg["proxy_app"] = toml_value(format!(
-            "tcp://{}:{}",
-            &host.addr.local,
-            ports.get_sys_abci()
-        ));
-
-        let remote_os = remote.hosts_os().c(d!())?;
-        match remote_os {
-            HostOS::Linux | HostOS::MacOS | HostOS::FreeBSD => {
-                cfg["rpc"]["laddr"] = toml_value(format!(
-                    "tcp://{}:{}",
-                    &host.addr.local,
-                    ports.get_sys_rpc()
-                ));
-            }
-            HostOS::Unknown(os) => return Err(eg!("Unsupported OS: {}!", os)),
-        }
-
-        let mut arr = Array::new();
-        arr.push("*");
-        cfg["rpc"]["cors_allowed_origins"] = toml_value(arr);
-        cfg["rpc"]["max_open_connections"] = toml_value(10_0000);
-
-        cfg["p2p"]["pex"] = toml_value(true);
-        cfg["p2p"]["seed_mode"] = toml_value(false);
-        cfg["p2p"]["addr_book_strict"] = toml_value(false);
-        cfg["p2p"]["allow_duplicate_ip"] = toml_value(true);
-        cfg["p2p"]["persistent_peers_max_dial_period"] = toml_value("30s");
-        cfg["p2p"]["flush_throttle_timeout"] = toml_value("0ms");
-        cfg["p2p"]["send_rate"] = toml_value(GB);
-        cfg["p2p"]["recv_rate"] = toml_value(GB);
-        cfg["p2p"]["max_packet_msg_payload_size"] = toml_value(MB);
-        cfg["p2p"]["laddr"] = toml_value(format!(
-            "tcp://{}:{}",
-            &host.addr.local,
-            ports.get_sys_p2p()
-        ));
-        if let Some(addr_external) = host.addr.external.as_ref() {
-            cfg["p2p"]["external_address"] =
-                toml_value(format!("{}:{}", &addr_external, ports.get_sys_p2p()));
-        }
-
-        cfg["consensus"]["timeout_propose"] = toml_value("8s");
-        cfg["consensus"]["timeout_propose_delta"] = toml_value("500ms");
-        cfg["consensus"]["timeout_prevote"] = toml_value("0s");
-        cfg["consensus"]["timeout_prevote_delta"] = toml_value("500ms");
-        cfg["consensus"]["timeout_precommit"] = toml_value("0s");
-        cfg["consensus"]["timeout_precommit_delta"] = toml_value("500ms");
-        let block_itv = self.meta.block_itv_secs.to_millisecond().c(d!())?;
-        let itv = (block_itv / 2).to_string() + "ms";
-        cfg["consensus"]["timeout_commit"] = toml_value(&itv);
-        cfg["consensus"]["skip_timeout_commit"] = toml_value(false);
-        cfg["consensus"]["create_empty_blocks"] = toml_value(true);
-        cfg["consensus"]["create_empty_blocks_interval"] = toml_value(itv);
-
-        cfg["mempool"]["recheck"] = toml_value(false);
-        cfg["mempool"]["broadcast"] = toml_value(true);
-        cfg["mempool"]["size"] = toml_value(1_000_000);
-        cfg["mempool"]["cache_size"] = toml_value(2_000_000);
-        cfg["mempool"]["max_txs_bytes"] = toml_value(10 * GB);
-        cfg["mempool"]["max_tx_bytes"] = toml_value(5 * MB);
-        cfg["mempool"]["ttl-num-blocks"] = toml_value(16);
-
-        cfg["moniker"] = toml_value(format!("{}-{}", &self.meta.name, id));
-
-        match kind {
-            NodeKind::Node => {
-                cfg["p2p"]["max_num_inbound_peers"] = toml_value(40);
-                cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
-                cfg["tx_index"]["indexer"] = toml_value("null");
-            }
-            NodeKind::Bootstrap => {
-                cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
-                cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
-                cfg["tx_index"]["indexer"] = toml_value("kv");
-                cfg["tx_index"]["index_all_keys"] = toml_value(true);
-            }
-        }
-        let cfg = cfg.to_string();
-
-        // 3.
-        remote.replace_file(&cfgfile, cfg.as_bytes()).c(d!())?;
-
-        // 4.
-        let bc_id = TmConfig::parse_toml(&cfg)
-            .map_err(|e| eg!(e))
-            .and_then(|cfg| {
-                remote
-                    .read_file(PathBuf::from(&home).join(cfg.node_key_file))
-                    .c(d!())
+        Remote::from(&host)
+            .exec_cmd(&format!("mkdir -p {}", &home))
+            .c(d!())
+            .map(|_| Node {
+                id,
+                home,
+                kind,
+                host,
+                ports,
             })
-            .and_then(|contents| NodeKey::parse_json(contents).c(d!()))?
-            .node_id()
-            .to_string()
-            .to_lowercase();
-        let node = Node {
-            id,
-            bc_id,
-            home: format!("{}/{}", &self.meta.home, id),
-            kind,
-            host,
-            ports,
-        };
-
-        Ok(node)
     }
 
-    fn update_peer_cfg(&self) -> Result<()> {
-        let errlist = thread::scope(|s| {
-            let mut hdrs = vec![];
-            for n in self
-                .meta
-                .nodes
-                .values()
-                .chain(self.meta.bootstraps.values())
-            {
-                let hdr = s.spawn(|| {
-                    self.apply_resources(n.id, n.kind, n.host.clone(), n.ports.clone())
-                        .c(d!())?;
-
-                    let remote = Remote::from(&n.host);
-                    let cfgfile = format!("{}/config/config.toml", &n.home);
-                    let mut cfg = remote
-                        .read_file(&cfgfile)
-                        .c(d!())
-                        .and_then(|c| c.parse::<Document>().c(d!()))?;
-                    cfg["p2p"]["persistent_peers"] = toml_value(
-                        self.meta
-                            .nodes
-                            .values()
-                            .chain(self.meta.bootstraps.values())
-                            .filter(|p| p.id != n.id)
-                            .map(|p| {
-                                format!(
-                                    "{}@{}:{}",
-                                    &p.bc_id,
-                                    p.host.addr.connection_addr_x(&n.host.addr.local_id),
-                                    p.ports.get_sys_p2p()
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join(","),
-                    );
-                    remote
-                        .replace_file(&cfgfile, cfg.to_string().as_bytes())
-                        .c(d!())
-                });
-                hdrs.push(hdr);
-            }
-            hdrs.into_iter()
-                .flat_map(|hdr| hdr.join())
-                .filter(|t| t.is_err())
-                .collect::<Vec<_>>()
+    #[inline(always)]
+    fn update_online_status(&mut self, nodes_in: &[NodeID], nodes_out: &[NodeID]) {
+        nodes_in.iter().copied().for_each(|id| {
+            self.meta.nodes_should_be_online.insert(id);
         });
 
-        check_errlist!(errlist)
+        nodes_out.iter().for_each(|id| {
+            self.meta.nodes_should_be_online.remove(id);
+        });
     }
 
     // Allocate unique IDs for nodes within the scope of an env
+    #[inline(always)]
     fn next_node_id(&mut self) -> NodeID {
         let ret = self.meta.next_node_id;
         self.meta.next_node_id += 1;
         ret
     }
 
-    // Generate a new `genesis.json`
-    // based on the collection of initial validators
-    fn gen_genesis<A>(&mut self, app_state: &A) -> Result<()>
-    where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    {
-        let tmp_id = NodeID::MAX;
-        let tmp_home = format!("{}/{}", &self.meta.home, tmp_id);
+    // If no genesis data set,
+    // build from scratch using [EGG](https://github.com/NBnet/EGG)
+    fn gen_genesis(&mut self) -> Result<()> {
+        let tmpdir = format!("/tmp/egg_{}_{}", ts!(), rand::random::<u16>());
+        omit!(fs::remove_dir_all(&tmpdir));
+        fs::create_dir_all(&tmpdir).c(d!())?;
 
-        let parse = |n: &Node<P>| {
-            let cfgfile = format!("{}/config/config.toml", &n.home);
-            let remote = Remote::from(&n.host);
-            remote
-                .read_file(cfgfile)
+        if self.meta.genesis.is_empty() {
+            // clone repo
+            // custom cfg, eg. block itv
+            // build genesis data
+            // set generated data to ENV
+
+            let repo = format!("{tmpdir}/egg");
+            let cfg = format!("{repo}/custom.env");
+
+            let gitcmd =
+                format!("git clone https://github.com/NBnet/EGG {repo} || exit 1");
+            cmd::exec_output(&gitcmd).c(d!())?;
+
+            if !self.meta.genesis_pre_settings.is_empty() {
+                fs::write(&cfg, self.meta.genesis_pre_settings.as_bytes()).c(d!())?;
+            }
+
+            let cmd = format!(
+                r#"
+                cd {repo} || exit 1
+                if [ ! -f {cfg} ]; then
+                    cp {cfg}.minimal.example {cfg} || exit 1
+                fi
+                if [ 0 -lt {0} ]; then
+                    sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
+                    echo 'export SLOT_DURATION_IN_SECONDS="{0}"' >>${cfg} || exit 1
+                fi
+                make minimal_prepare || exit 1
+                make build
+                "#,
+                self.meta.block_itv
+            );
+
+            cmd::exec_output(&cmd).c(d!())?;
+
+            self.meta.genesis =
+                fs::read(format!("{repo}/data/genesis.tar.gz")).c(d!())?;
+            self.meta.genesis_vkeys =
+                fs::read(format!("{repo}/data/vcdata.tar.gz")).c(d!())?;
+        } else {
+            if self.meta.genesis_vkeys.is_empty() {
+                return Err(eg!(
+                    "Validator keys should always be set with the genesis data"
+                ));
+            }
+
+            // extract the tar.gz,
+            // update the `block itv` to the value in the genesis
+
+            let genesis = format!("{tmpdir}/genesis.tar.gz");
+            let yml = format!("{tmpdir}/config.yaml");
+            let cmd = format!("tar -xpf {genesis} && cp ${tmpdir}/*/config.yaml {yml}");
+            fs::write(&genesis, &self.meta.genesis)
                 .c(d!())
-                .and_then(|f| TmConfig::parse_toml(f).map_err(|e| eg!(e)))
-                .and_then(|cfg| {
-                    cfg.priv_validator_key_file
-                        .as_ref()
-                        .c(d!())
-                        .and_then(|f| {
-                            remote.read_file(PathBuf::from(&n.home).join(f)).c(d!())
-                        })
-                        .and_then(|c| TmValidatorKey::parse_json(c).map_err(|e| eg!(e)))
-                })
-                .map(|key| TmValidator::new(key.pub_key, TmPower::from(PRESET_POWER)))
-        };
-        let gen = |genesis_file: String| {
-            thread::scope(|s| {
-                let hdrs = self
-                    .meta
-                    .nodes
-                    .values()
-                    .map(|n| s.spawn(|| parse(n)))
-                    .collect::<Vec<_>>();
-                hdrs.into_iter()
-                    .flat_map(|h| h.join())
-                    .collect::<Result<Vec<_>>>()
-            })
-            .and_then(|vs| serde_json::to_value(vs).c(d!()))
-            .and_then(|mut vs| {
-                vs.as_array_mut()
-                    .c(d!())?
-                    .iter_mut()
-                    .enumerate()
-                    .for_each(|(i, v)| {
-                        v["power"] = JsonValue::String(PRESET_POWER.to_string());
-                        v["name"] = JsonValue::String(format!("NODE_{}", i));
-                    });
+                .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
 
-                fs::read_to_string(format!("{}/{}", tmp_home, genesis_file))
-                    .c(d!())
-                    .and_then(|g| serde_json::from_str::<JsonValue>(&g).c(d!()))
-                    .and_then(|mut g| {
-                        g["validators"] = vs;
-                        g["app_state"] =
-                            serde_json::to_value(app_state.clone()).c(d!())?;
-                        g["genesis_time"] = JsonValue::String(
-                            // '2022-xxx' --> '1022-xxx'
-                            // avoid waiting time between hosts
-                            // due to different time shift
-                            // when the chain is starting first time
-                            g["genesis_time"].as_str().unwrap().replacen('2', "1", 1),
-                        );
-                        g["consensus_params"]["block"]["max_bytes"] =
-                            serde_json::to_value((MB * 10).to_string()).unwrap();
-                        self.meta.genesis = Some(serde_json::from_value(g).c(d!())?);
-                        Ok(())
-                    })
-            })
-        };
+            let ymlhdr = fs::read(&yml)
+                .c(d!())
+                .and_then(|c| serde_yml::from_slice::<serde_yml::Value>(&c).c(d!()))?;
 
-        cmd::exec_output(&format!(
-            "chmod +x {0} && {0} init --home {1}",
-            &self.meta.beacon_bin, &tmp_home
-        ))
-        .c(d!())
-        .and_then(|_| {
-            TmConfig::load_toml_file(&format!("{}/config/config.toml", &tmp_home))
-                .map_err(|e| eg!(e))
-        })
-        .and_then(|cfg| cfg.genesis_file.to_str().map(|f| f.to_owned()).c(d!()))
-        .and_then(gen)
-        .and_then(|_| fs::remove_dir_all(tmp_home).c(d!()))
+            self.meta.block_itv = u16::try_from(max!(
+                ymlhdr["SECONDS_PER_SLOT"].as_u64().c(d!())?,
+                ymlhdr["SECONDS_PER_ETH1_BLOCK"].as_u64().c(d!())?,
+            ))
+            .c(d!())?;
+
+            self.write_cfg().c(d!())?;
+        }
+
+        omit!(fs::remove_dir_all(&tmpdir));
+
+        Ok(())
     }
 
-    fn apply_genesis(&self, n: Option<NodeID>) -> Result<()> {
-        let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
+    fn apply_genesis(&self, id: Option<NodeID>) -> Result<()> {
+        if self.meta.genesis.is_empty() || self.meta.genesis_vkeys.is_empty() {
+            return Err(eg!("BUG: no genesis data"));
+        }
+
+        let nodes = if let Some(id) = id {
+            self.meta
+                .nodes
+                .get(&id)
+                .or_else(|| self.meta.bootstraps.get(&id))
+                .c(d!())
+                .map(|n| vec![n])?
+        } else {
             self.meta
                 .bootstraps
-                .keys()
-                .chain(self.meta.nodes.keys())
-                .copied()
+                .values()
+                .chain(self.meta.nodes.values())
                 .collect()
-        });
+        };
+
+        let genesis_node_id = *self.meta.bootstraps.keys().next().c(d!())?;
 
         let errlist = thread::scope(|s| {
             let mut hdrs = vec![];
             for n in nodes.iter() {
-                let hdr = s.spawn(|| {
-                    let n = self
-                        .meta
-                        .nodes
-                        .get(n)
-                        .or_else(|| self.meta.bootstraps.get(n))
-                        .c(d!())?;
+                let hdr = s.spawn(|| -> Result<()> {
                     let remote = Remote::from(&n.host);
-                    let cfgfile = format!("{}/config/config.toml", &n.home);
+                    let mut p = format!("{}/genesis.tar.gz", n.home.as_str());
+                    let mut cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
                     remote
-                        .read_file(cfgfile)
+                        .write_append_file(&p, &self.meta.genesis)
                         .c(d!())
-                        .and_then(|c| TmConfig::parse_toml(c).map_err(|e| eg!(e)))
-                        .map(|cfg| PathBuf::from(&n.home).join(cfg.genesis_file))
-                        .and_then(|genesis_path| {
-                            self.meta
-                                .genesis
-                                .as_ref()
-                                .c(d!("BUG"))
-                                .and_then(|g| serde_json::to_vec_pretty(g).c(d!()))
-                                .and_then(|g| {
-                                    remote.replace_file(&genesis_path, &g).c(d!())
-                                })
-                        })
+                        .and_then(|_| remote.exec_cmd(&cmd).c(d!()))?;
+                    if n.id == genesis_node_id {
+                        p = format!("{}/vcdata.tar.gz", n.home.as_str());
+                        cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
+                        remote
+                            .write_append_file(&p, &self.meta.genesis_vkeys)
+                            .c(d!())
+                            .and_then(|_| remote.exec_cmd(&cmd).c(d!()))?;
+                    }
+                    Ok(())
                 });
                 hdrs.push(hdr);
             }
+
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
@@ -1210,9 +1075,8 @@ where
         EnvMeta::<C, Node<P>>::get_env_list().c(d!())
     }
 
-    fn load_env_by_cfg<A, U>(cfg: &EnvCfg<A, C, P, U>) -> Result<Env<C, P, S>>
+    fn load_env_by_cfg<U>(cfg: &EnvCfg<C, P, U>) -> Result<Env<C, P, S>>
     where
-        A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         U: CustomOps,
     {
         Self::load_env_by_name(&cfg.name)
@@ -1314,7 +1178,7 @@ where
         // Avoid the preserved ports to be allocated on any validator node,
         // allow non-valdator nodes(on different hosts) to
         // get the owned preserved ports on their own scopes
-        if !matches!(node_kind, NodeKind::Node)
+        if matches!(node_kind, NodeKind::Bootstrap)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved.iter().all(|hp| !PC.contains(hp))
             && reserved_ports.iter().all(port_is_free)
@@ -1347,8 +1211,6 @@ where
 #[serde(bound = "")]
 pub struct Node<P: NodePorts> {
     id: NodeID,
-    #[serde(rename = "beacon_node_id")]
-    bc_id: String,
     #[serde(rename = "home_dir")]
     pub home: String,
     pub kind: NodeKind,
@@ -1360,63 +1222,30 @@ impl<P: NodePorts> Node<P> {
     fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
     where
         C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if self
-            .is_running(&env.meta.app_bin, &env.meta.beacon_bin)
+        if env
+            .node_cmdline_generator
+            .cmd_is_running(self, &env.meta)
             .c(d!())?
         {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
         }
 
-        let (bc_vars, bc_opts) = env.node_opts_generator.beacon_opts(self, &env.meta);
-        let (app_vars, app_opts) = env.node_opts_generator.app_opts(self, &env.meta);
-        let cmd = format!(
-            r#"
-             chmod +x {bc_bin} {app_bin} || exit 1
-             {bc_vars} {bc_bin} {bc_opts} >>{home}/beacon.log 2>&1 &
-             {app_vars} {app_bin} {app_opts} >>{home}/app.log 2>&1 &
-            "#,
-            bc_bin = env.meta.beacon_bin,
-            app_bin = env.meta.app_bin,
-            home = &self.home,
-        );
-
+        let cmd = env.node_cmdline_generator.cmd_for_start(self, &env.meta);
         let outputs = Remote::from(&self.host).exec_cmd(&cmd).c(d!(cmd))?;
         let log = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&log).c(d!())
     }
 
-    fn is_running(&self, app_bin: &str, beacon_bin: &str) -> Result<bool> {
-        let cmd = format!(
-            "ps ax -o pid,args | grep -E '({0}.*{2})|({1}.*{2})' | grep -v 'grep' | wc -l",
-            app_bin, beacon_bin, &self.home
-        );
-
-        // Use the `wc -l` instead of the `grep -vc 'grep'`
-        // to avoid a non-zero exit code
-        Remote::from(&self.host)
-            .exec_cmd(&cmd)
-            .c(d!())?
-            .trim()
-            .parse::<u64>()
-            .c(d!())
-            .map(|n| alt!(0 < n, true, false))
-    }
-
-    fn stop(&self, force: bool) -> Result<()> {
-        let cmd = format!(
-            "for i in \
-                $(ps ax -o pid,args \
-                    | grep '{}' \
-                    | grep -v 'grep' \
-                    | grep -Eo '^ *[0-9]+' \
-                    | sed 's/ //g' \
-                ); \
-             do kill {} $i; done",
-            &self.home,
-            alt!(force, "-9", ""),
-        );
+    fn stop<C, U>(&self, env: &Env<C, P, U>, force: bool) -> Result<()>
+    where
+        C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        U: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
+        let cmd = env
+            .node_cmdline_generator
+            .cmd_for_stop(self, &env.meta, force);
         let outputs = Remote::from(&self.host).exec_cmd(&cmd).c(d!())?;
         let log = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&log).c(d!())
@@ -1426,13 +1255,13 @@ impl<P: NodePorts> Node<P> {
         let log = format!("\n\n[ {} ]\n{}: {}", datetime!(), &self.host.addr, log);
         let logfile = format!("{}/mgmt.log", &self.home);
         Remote::from(&self.host)
-            .write_file(logfile, log.as_bytes())
+            .write_append_file(logfile, log.as_bytes())
             .c(d!())
     }
 
     // - Release all occupied ports
     // - Remove all files related to this node
-    fn clean(&self) -> Result<()> {
+    fn clean_up(&self) -> Result<()> {
         for port in self.ports.get_port_list().iter() {
             PC.remove(&format!("{},{}", &self.host.addr, port));
         }
@@ -1446,77 +1275,47 @@ impl<P: NodePorts> Node<P> {
 
     // Migrate this node to another host,
     // NOTE: the node ID has been changed
-    fn migrate(&self, new_base: &Node<P>) -> Result<()> {
+    fn migrate<C, S>(&self, new_base: &Node<P>, env: &Env<C, P, S>) -> Result<()>
+    where
+        C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
         if self.host.addr == new_base.host.addr {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
+        self.stop(env, false).c(d!())?;
+
         let remote_from = Remote::from(&self.host);
+        let cmd_out = env
+            .node_cmdline_generator
+            .cmd_for_migrate_out(self, new_base, &env.meta);
+
         let remote_to = Remote::from(&new_base.host);
+        let cmd_in = env
+            .node_cmdline_generator
+            .cmd_for_migrate_in(self, new_base, &env.meta);
 
-        let source_cfg_path = format!("{}/config", &self.home);
-        let target_cfg_path = format!("{}/config", &new_base.home);
-
-        if !remote_from.file_is_dir(&source_cfg_path).c(d!())? {
-            return Err(eg!("The source cfg path is invalid"));
-        }
-
-        if !remote_to.file_is_dir(&new_base.home).c(d!())? {
-            return Err(eg!("The new base has not been built"));
-        }
-
-        self.stop(false).c(d!())?;
-
-        let local_cfg_copy = remote_from
-            .get_tgz_from_host(&source_cfg_path, Some("/tmp"))
-            .c(d!())?;
-        let remote_tgz_path = &local_cfg_copy;
-        remote_to
-            .put_file(&local_cfg_copy, remote_tgz_path)
+        remote_from
+            .exec_cmd(&cmd_out)
             .c(d!())
-            .and_then(|_| {
-                let cmd = format!(
-                    r"
-                    rm -rf {0} /tmp/{1} && \
-                    cd /tmp && tar -xf {2} && \
-                    mv /tmp/{1} {0}
-                    ",
-                    target_cfg_path, source_cfg_path, remote_tgz_path
-                );
-                remote_to.exec_cmd(&cmd).c(d!()).map(|_| ())
-            })
-    }
-}
-
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
-pub enum NodeKind {
-    Node,
-    Bootstrap,
-}
-
-impl fmt::Display for NodeKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let msg = match self {
-            Self::Bootstrap => "bootstrap",
-            Self::Node => "validator_or_full",
-        };
-        write!(f, "{}", msg)
+            .and_then(|_| remote_to.exec_cmd(&cmd_in).c(d!()))
+            .map(|_| ())
     }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub enum Op<A, C, P, U>
+pub enum Op<C, P, U>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
     U: CustomOps,
 {
-    Create(EnvOpts<A, C>),
-    Destroy(bool), // force or not
-    DestroyAll(bool), // force or not
-    PushNode(Option<HostAddr>),
+    Create(EnvOpts<C>),
+    Destroy(bool),                      // force or not
+    DestroyAll(bool),                   // force or not
+    PushNode((Option<HostAddr>, bool)), // for archive node, set `true`; full node set `false`
     MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
     // remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey
@@ -1527,7 +1326,7 @@ where
     Start(Option<NodeID>),
     StartAll,
     Stop((Option<NodeID>, bool)), // force or not
-    StopAll(bool), // force or not
+    StopAll(bool),                // force or not
     Show,
     ShowAll,
     List,
@@ -1546,12 +1345,6 @@ where
         script_path: Option<String>,
         hosts: Option<Hosts>,
     },
-    NodeCollectLogs {
-        local_base_dir: Option<String>,
-    },
-    NodeCollectConfigurations {
-        local_base_dir: Option<String>,
-    },
     Custom(U),
     Nil(P),
 }
@@ -1559,31 +1352,44 @@ where
 /// Options specified with the create operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvOpts<A, C>
+pub struct EnvOpts<C>
 where
-    A: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
     /// The host list of the env
     pub hosts: Hosts,
 
-    /// Seconds between two blocks
-    pub block_itv_secs: BlockItv,
+    /// Seconds between two blocks, aka BlockTime
+    pub block_itv: BlockItv,
 
-    /// How many initial validators should be created,
-    /// default to 4
-    pub initial_validator_num: u8,
+    /// The contents of a EGG custom.env,
+    ///
+    /// Format:
+    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    pub genesis_pre_settings: String,
 
-    pub app_bin: String,
-    pub app_extra_opts: String,
+    /// The network cfg files,
+    /// a gzip compressed tar package
+    pub genesis_tgz_path: Option<String>,
 
-    pub beacon_bin: String,
-    pub beacon_extra_opts: String,
+    /// The initial validator keys,
+    /// a gzip compressed tar package
+    pub genesis_vkeys_tgz_path: Option<String>,
 
-    pub force_create: bool,
+    /// How many initial nodes should be created,
+    /// including the bootstrap node
+    pub initial_node_num: u8,
 
-    pub app_state: A,
+    /// Set nodes as full node by default
+    pub initial_nodes_archive_mode: bool,
+
+    /// Data data may be useful when cfg/running nodes,
+    /// such as the info about execution client(reth or geth)
     pub custom_data: C,
+
+    /// Try to destroy env with the same name,
+    /// and create a new one
+    pub force_create: bool,
 }
 
 static PC: LazyLock<PortsCache> = LazyLock::new(|| pnk!(PortsCache::load_or_create()));

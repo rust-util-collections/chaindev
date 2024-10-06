@@ -75,14 +75,29 @@ pub trait NodePorts:
 pub trait NodeCmdGenerator<N, E>:
     Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
 {
+    /// Return: whether the target node is running
+    fn cmd_is_running(&self, node: &N, env_meta: &E) -> Result<bool>;
+
     /// Return: the custom cmd to start the node
     fn cmd_for_start(&self, node: &N, env_meta: &E) -> String;
 
     /// Return: the custom cmd to stop the node
     fn cmd_for_stop(&self, node: &N, env_meta: &E, force: bool) -> String;
 
-    /// Return: whether the target node is running
-    fn cmd_is_running(&self, node: &N, env_meta: &E) -> Result<bool>;
+    /// Return: the custom cmd to migrate a node in
+    fn cmd_for_migrate_in(&self, _src_node: &N, _dst_node: &N, _env_meta: &E) -> String {
+        String::new()
+    }
+
+    /// Return: the custom cmd to migrate a node out
+    fn cmd_for_migrate_out(
+        &self,
+        _src_node: &N,
+        _dst_node: &N,
+        _env_meta: &E,
+    ) -> String {
+        String::new()
+    }
 }
 
 pub trait CustomOps:
@@ -124,3 +139,21 @@ pub(crate) static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
 // pub(crate) const PRESET_DEPOSIT: u128 = 32 * 10_u128.pow(18); // 32 ETH
 
 pub(crate) type BlockItv = u16;
+
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub enum NodeKind {
+    Bootstrap,
+    ArchiveNode,
+    FullNode,
+}
+
+impl fmt::Display for NodeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let msg = match self {
+            Self::Bootstrap => "bootstrap_node",
+            Self::ArchiveNode => "archive_node",
+            Self::FullNode => "full_node",
+        };
+        write!(f, "{}", msg)
+    }
+}

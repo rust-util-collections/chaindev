@@ -116,13 +116,13 @@ pub struct HostMeta {
     pub(super) ssh_local_seckeys: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone)]
-pub(super) enum HostOS {
-    Linux,
-    MacOS,
-    FreeBSD,
-    Unknown(String),
-}
+// #[derive(Debug, Clone)]
+// pub(super) enum HostOS {
+//     Linux,
+//     MacOS,
+//     FreeBSD,
+//     Unknown(String),
+// }
 
 type HostMap = BTreeMap<HostAddr, Host>;
 

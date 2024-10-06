@@ -1,7 +1,7 @@
 use crate::{
     beacon_based::ddev::{
-        host::{Host, HostMeta, HostOS, Hosts},
-        Env, EnvMeta, Node, NodeOptsGenerator, NodePorts,
+        host::{Host, HostMeta, Hosts},
+        Env, EnvMeta, Node, NodeCmdGenerator, NodePorts,
     },
     check_errlist,
 };
@@ -13,7 +13,7 @@ use std::{
 };
 use std::{fmt, fs, sync::Mutex, thread};
 
-pub(super) struct Remote<'a> {
+pub struct Remote<'a> {
     inner: ssh::RemoteHost<'a>,
 }
 
@@ -38,7 +38,7 @@ impl<'a> From<&'a Host> for Remote<'a> {
 
 impl<'a> Remote<'a> {
     // Execute a cmd on a remote host and get its outputs
-    pub(super) fn exec_cmd(&self, cmd: &str) -> Result<String> {
+    pub fn exec_cmd(&self, cmd: &str) -> Result<String> {
         let cmd = format!("ulimit -n 100000 >/dev/null 2>&1;{}", cmd);
         self.inner
             .exec_cmd(&cmd)
@@ -46,14 +46,14 @@ impl<'a> Remote<'a> {
             .map(|c| String::from_utf8_lossy(&c).into_owned())
     }
 
-    pub(super) fn read_file<P: AsRef<Path>>(&self, path: P) -> Result<String> {
+    pub fn read_file<P: AsRef<Path>>(&self, path: P) -> Result<String> {
         self.inner
             .read_file(path)
             .map_err(|e| eg!(e))
             .map(|c| String::from_utf8_lossy(&c).into_owned())
     }
 
-    pub(super) fn get_file<LP: AsRef<Path>, RP: AsRef<Path>>(
+    pub fn get_file<LP: AsRef<Path>, RP: AsRef<Path>>(
         &self,
         remote_path: RP,
         local_path: LP,
@@ -63,8 +63,8 @@ impl<'a> Remote<'a> {
             .map_err(|e| eg!(e))
     }
 
-    // return: (the local path of tgz, the name of tgz)
-    pub(super) fn get_tgz_from_host(
+    /// Return: (the local path of tgz, the name of tgz)
+    pub fn get_tgz_from_host(
         &self,
         absolute_path: &str,
         local_base_dir: Option<&str>,
@@ -83,7 +83,7 @@ impl<'a> Remote<'a> {
         })
     }
 
-    pub(super) fn replace_file<P: AsRef<Path>>(
+    pub fn replace_file<P: AsRef<Path>>(
         &self,
         remote_path: P,
         contents: &[u8],
@@ -93,7 +93,7 @@ impl<'a> Remote<'a> {
             .map_err(|e| eg!(e))
     }
 
-    pub(super) fn write_file<P: AsRef<Path>>(
+    pub fn write_append_file<P: AsRef<Path>>(
         &self,
         remote_path: P,
         contents: &[u8],
@@ -103,7 +103,7 @@ impl<'a> Remote<'a> {
             .map_err(|e| eg!(e))
     }
 
-    pub(super) fn put_file<LP: AsRef<Path>, RP: AsRef<Path>>(
+    pub fn put_file<LP: AsRef<Path>, RP: AsRef<Path>>(
         &self,
         local_path: LP,
         remote_path: RP,
@@ -113,7 +113,7 @@ impl<'a> Remote<'a> {
             .map_err(|e| eg!(e))
     }
 
-    pub(super) fn file_is_dir<P: AsRef<str>>(&self, remote_path: P) -> Result<bool> {
+    pub fn file_is_dir<P: AsRef<str>>(&self, remote_path: P) -> Result<bool> {
         self.exec_cmd(&format!(
             r"\ls -ld {} | grep -o '^.'",
             &remote_path.as_ref()
@@ -122,7 +122,7 @@ impl<'a> Remote<'a> {
         .map(|file_mark| "d" == file_mark.trim())
     }
 
-    pub(super) fn get_occupied_ports(&self) -> Result<BTreeSet<u16>> {
+    pub fn get_occupied_ports(&self) -> Result<BTreeSet<u16>> {
         self.exec_cmd(
             r#"if [[ "Linux" = `uname -s` ]]; then ss -ntua | sed 's/ \+/ /g' | cut -d ' ' -f 5 | grep -o '[0-9]\+$'; elif [[ "Darwin" = `uname -s` ]]; then lsof -nP -i TCP | grep -o ':[0-9]\+[ -]'; else exit 1; fi"#,
         )
@@ -153,16 +153,16 @@ impl<'a> Remote<'a> {
         Ok(cpunum.saturating_mul(bogomips))
     }
 
-    pub(super) fn hosts_os(&self) -> Result<HostOS> {
-        let os = self.exec_cmd("uname -s").c(d!())?;
-        let os = match os.trim() {
-            "Linux" => HostOS::Linux,
-            "Darwin" => HostOS::MacOS,
-            "FreeBSD" => HostOS::FreeBSD,
-            _ => HostOS::Unknown(os),
-        };
-        Ok(os)
-    }
+    // pub(super) fn hosts_os(&self) -> Result<HostOS> {
+    //     let os = self.exec_cmd("uname -s").c(d!())?;
+    //     let os = match os.trim() {
+    //         "Linux" => HostOS::Linux,
+    //         "Darwin" => HostOS::MacOS,
+    //         "FreeBSD" => HostOS::FreeBSD,
+    //         _ => HostOS::Unknown(os),
+    //     };
+    //     Ok(os)
+    // }
 
     // fn get_local_privkey(&self) -> Result<String> {
     //     fs::read_to_string(self.ssh_local_privkey).c(d!())
@@ -174,8 +174,8 @@ impl<'a> Remote<'a> {
     // }
 }
 
-// Put a local file to some hosts
-pub(super) fn put_file_to_hosts(
+/// Put a local file to some hosts
+pub fn put_file_to_hosts(
     hosts: &Hosts,
     local_path: &str,
     remote_path: Option<&str>,
@@ -202,8 +202,8 @@ pub(super) fn put_file_to_hosts(
     check_errlist!(errlist)
 }
 
-// Get a remote file from some hosts
-pub(super) fn get_file_from_hosts(
+/// Get a remote file from some hosts
+pub fn get_file_from_hosts(
     hosts: &Hosts,
     remote_path: &str,
     local_base_dir: Option<&str>,
@@ -235,8 +235,8 @@ pub(super) fn get_file_from_hosts(
     check_errlist!(errlist)
 }
 
-// Execute some commands or a script on some hosts
-pub(super) fn exec_cmds_on_hosts(
+/// Execute some commands or a script on some hosts
+pub fn exec_cmds_on_hosts(
     hosts: &Hosts,
     cmd: Option<&str>,
     script_path: Option<&str>,
@@ -283,8 +283,10 @@ pub(super) fn exec_cmds_on_hosts(
                     let script = &script;
                     let tmp_script_path = &tmp_script_path;
                     s.spawn(move || {
-                        remote.write_file(tmp_script_path, script).c(d!()).and_then(
-                            |_| {
+                        remote
+                            .write_append_file(tmp_script_path, script)
+                            .c(d!())
+                            .and_then(|_| {
                                 info!(remote.exec_cmd(cmd), &h.meta.addr).map(
                                     |outputs| {
                                         let lk = LK.lock();
@@ -295,8 +297,7 @@ pub(super) fn exec_cmds_on_hosts(
                                         drop(lk);
                                     },
                                 )
-                            },
-                        )
+                            })
                     })
                 })
                 .collect::<Vec<_>>()
@@ -311,20 +312,7 @@ pub(super) fn exec_cmds_on_hosts(
     }
 }
 
-pub(super) fn collect_logs_from_nodes<C, P, S>(
-    env: &Env<C, P, S>,
-    local_base_dir: Option<&str>,
-) -> Result<()>
-where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-    P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
-{
-    collect_files_from_nodes(env, &["app.log", "beacon.log", "mgmt.log"], local_base_dir)
-        .c(d!())
-}
-
-pub(super) fn collect_files_from_nodes<C, P, S>(
+pub fn collect_files_from_nodes<C, P, S>(
     env: &Env<C, P, S>,
     files: &[&str], // file paths relative to the node home
     local_base_dir: Option<&str>,
@@ -332,7 +320,7 @@ pub(super) fn collect_files_from_nodes<C, P, S>(
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     let mut path_map = BTreeMap::new();
 
@@ -389,7 +377,7 @@ where
     Ok(())
 }
 
-pub(super) fn collect_tgz_from_nodes<'a, C, P, S>(
+pub fn collect_tgz_from_nodes<'a, C, P, S>(
     env: &'a Env<C, P, S>,
     paths: &'a [&'a str], // paths relative to the node home
     local_base_dir: Option<&'a str>,
@@ -397,7 +385,7 @@ pub(super) fn collect_tgz_from_nodes<'a, C, P, S>(
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'x> Deserialize<'x>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     let mut path_map = BTreeMap::new();
 
