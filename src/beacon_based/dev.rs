@@ -114,7 +114,7 @@ where
     pub host_ip: String,
 
     /// Seconds between two blocks
-    #[serde(rename = "block_interval_in_seconds")]
+    #[serde(rename = "block_time_in_seconds")]
     pub block_itv: BlockItv,
 
     /// The contents of a EGG custom.env,
@@ -602,9 +602,13 @@ where
             let cmd = format!(
                 r#"
                 cd {repo} || exit 1
-                if [! -f {cfg}]; then cp {cfg}.minimal.example {cfg} || exit 1; fi
-                sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
-                echo 'export SLOT_DURATION_IN_SECONDS="{}"' >>${cfg} || exit 1
+                if [ ! -f {cfg} ]; then
+                    cp {cfg}.minimal.example {cfg} || exit 1
+                fi
+                if [ 0 -lt {0} ]; then
+                    sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
+                    echo 'export SLOT_DURATION_IN_SECONDS="{0}"' >>${cfg} || exit 1
+                fi
                 make minimal_prepare || exit 1
                 make build
                 "#,
@@ -618,6 +622,12 @@ where
             self.meta.genesis_vkeys =
                 fs::read(format!("{repo}/data/vcdata.tar.gz")).c(d!())?;
         } else {
+            if self.meta.genesis_vkeys.is_empty() {
+                return Err(eg!(
+                    "BUG: validator data should be set with the genesis together"
+                ));
+            }
+
             // extract the tar.gz,
             // update the `block itv` to the value in the genesis
 
@@ -857,6 +867,7 @@ where
     pub host_ip: String,
 
     /// Seconds between two blocks
+    #[serde(default)]
     pub block_itv: BlockItv,
 
     /// The contents of a EGG custom.env,
