@@ -86,7 +86,7 @@ pub trait NodeCmdGenerator<N, E>:
 
     /// Return: the custom cmd to migrate a node in
     fn cmd_for_migrate_in(&self, _src_node: &N, _dst_node: &N, _env_meta: &E) -> String {
-        String::new()
+        todo!()
     }
 
     /// Return: the custom cmd to migrate a node out
@@ -96,7 +96,7 @@ pub trait NodeCmdGenerator<N, E>:
         _dst_node: &N,
         _env_meta: &E,
     ) -> String {
-        String::new()
+        todo!()
     }
 }
 
