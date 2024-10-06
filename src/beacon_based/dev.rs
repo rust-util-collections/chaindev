@@ -117,12 +117,12 @@ where
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv: BlockItv,
 
-    /// The first Bootstrap node
-    /// will be treated as the genesis node
-    #[serde(rename = "bootstrap_nodes")]
-    pub bootstraps: BTreeMap<NodeID, N>,
-
-    pub nodes: BTreeMap<NodeID, N>,
+    /// The contents of a EGG custom.env,
+    ///
+    /// Format:
+    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    #[serde(default)]
+    pub genesis_custom_settings: String,
 
     /// The network cfg files,
     /// a gzip compressed tar package
@@ -133,6 +133,13 @@ where
     /// a gzip compressed tar package
     #[serde(default)]
     pub genesis_vkeys: Vec<u8>,
+
+    /// The first Bootstrap node
+    /// will be treated as the genesis node
+    #[serde(rename = "bootstrap_nodes")]
+    pub bootstraps: BTreeMap<NodeID, N>,
+
+    pub nodes: BTreeMap<NodeID, N>,
 
     pub custom_data: C,
 
@@ -245,10 +252,11 @@ where
                 home,
                 host_ip: opts.host_ip.clone(),
                 block_itv: opts.block_itv,
-                nodes: Default::default(),
-                bootstraps: Default::default(),
+                genesis_custom_settings: opts.genesis_custom_settings.clone(),
                 genesis,
                 genesis_vkeys,
+                nodes: Default::default(),
+                bootstraps: Default::default(),
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
@@ -581,14 +589,22 @@ where
             // set generated data to ENV
 
             let repo = format!("{tmpdir}/egg");
-            let cfgfile = format!("{repo}/custom.env");
+            let cfg = format!("{repo}/custom.env");
+
+            let gitcmd =
+                format!("git clone https://github.com/NBnet/EGG {repo} || exit 1");
+            cmd::exec_output(&gitcmd).c(d!())?;
+
+            if !self.meta.genesis_custom_settings.is_empty() {
+                fs::write(&cfg, self.meta.genesis_custom_settings.as_bytes()).c(d!())?;
+            }
 
             let cmd = format!(
                 r#"
-                git clone https://github.com/NBnet/EGG {repo} || exit 1
                 cd {repo} || exit 1
-                sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfgfile} || exit 1
-                sed -i 's/^.*\(SLOT_DURATION_IN_SECONDS\).*$/export \1="{}"/' {cfgfile} || exit 1
+                if [! -f {cfg}]; then cp {cfg}.minimal.example {cfg} || exit 1; fi
+                sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
+                echo 'export SLOT_DURATION_IN_SECONDS="{}"' >>${cfg} || exit 1
                 make minimal_prepare || exit 1
                 make build
                 "#,
@@ -842,6 +858,13 @@ where
 
     /// Seconds between two blocks
     pub block_itv: BlockItv,
+
+    /// The contents of a EGG custom.env,
+    ///
+    /// Format:
+    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    #[serde(default)]
+    pub genesis_custom_settings: String,
 
     /// The network cfg files,
     /// a gzip compressed tar package
