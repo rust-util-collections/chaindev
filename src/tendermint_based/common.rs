@@ -19,11 +19,11 @@ pub trait NodePorts:
     }
 
     /// Reserved ports defined by the Tendermint
-    fn sys_reserved() -> [u16; 3] {
+    fn sys_reserved() -> Vec<u16> {
         // - p2p, owned by TM
         // - rpc, owned by TM
         // - abci, owned by APP
-        [26656, 26657, 26658]
+        [26656, 26657, 26658].to_vec()
     }
 
     /// Reserved ports defined by the APP
