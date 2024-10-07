@@ -40,7 +40,7 @@ pub trait NodePorts:
     /// Reserved ports defined by the Execution Client
     fn app_reserved() -> Vec<u16>;
 
-    /// Set all actual ports to the instance
+    /// Check and return the new created port set
     fn try_create(ports: &[u16]) -> Result<Self>;
 
     /// Get all actual ports from the instance,

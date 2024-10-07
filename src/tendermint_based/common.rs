@@ -17,6 +17,7 @@ pub trait NodePorts:
         ret.extend_from_slice(&Self::sys_reserved());
         ret
     }
+
     /// Reserved ports defined by the Tendermint
     fn sys_reserved() -> [u16; 3] {
         // - p2p, owned by TM
@@ -24,16 +25,22 @@ pub trait NodePorts:
         // - abci, owned by APP
         [26656, 26657, 26658]
     }
+
     /// Reserved ports defined by the APP
     fn app_reserved() -> Vec<u16>;
-    /// Set all actual ports to the instance
+
+    /// Check and return the new created port set
     fn try_create(ports: &[u16]) -> Result<Self>;
+
     /// Get actual ports from the instance
     fn get_port_list(&self) -> Vec<u16>;
+
     /// The p2p listening port in the Tendermint side
     fn get_sys_p2p(&self) -> u16;
+
     /// The rpc listening port in the Tendermint side
     fn get_sys_rpc(&self) -> u16;
+
     /// The ABCI listening port in the APP side
     fn get_sys_abci(&self) -> u16;
 }
