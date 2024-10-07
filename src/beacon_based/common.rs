@@ -14,13 +14,13 @@ pub trait NodePorts:
     /// Reserved ports defined both
     /// by the Beacon and the Execution Client
     fn reserved() -> Vec<u16> {
-        let mut ret = Self::app_reserved();
-        ret.extend_from_slice(&Self::sys_reserved());
+        let mut ret = Self::el_reserved();
+        ret.extend_from_slice(&Self::cl_reserved());
         ret
     }
 
     /// Reserve wide-used ports for the default node
-    fn sys_reserved() -> Vec<u16> {
+    fn cl_reserved() -> Vec<u16> {
         // - lighthouse bn(discovery port): 9000
         // - lighthouse bn(quic port): 9001
         // - lighthouse bn(http rpc): 5052
@@ -31,7 +31,7 @@ pub trait NodePorts:
     }
 
     /// Reserved ports defined by the Execution Client
-    fn app_reserved() -> Vec<u16> {
+    fn el_reserved() -> Vec<u16> {
         // - geth/reth(web3 rpc): 8545, 8546
         // - geth/reth(engine api): 8551
         // - geth/reth(discovery port): 30303
@@ -47,29 +47,32 @@ pub trait NodePorts:
     /// all: <sys ports> + <app ports>
     fn get_port_list(&self) -> Vec<u16>;
 
-    /// The rpc listening port in the app side,
-    /// eg. ETH el(geth/reth) web3 API rpc
-    fn get_app_rpc(&self) -> u16; // { 8545 }
-
     /// The p2p listening port in the execution side,
     /// may be used in generating the enode address for an execution node
-    fn get_sys_p2p_execution(&self) -> u16; // { 30303 }
-
-    /// The p2p(tcp/udp protocol) listening port in the beacon side
-    /// may be used in generating the ENR address for a beacon node
-    fn get_sys_p2p_consensus_bn(&self) -> u16; // { 9000 }
-
-    /// The p2p(quic protocol) listening port in the beacon side
-    /// may be used in generating the ENR address for a beacon node
-    fn get_sys_p2p_consensus_bn_quic(&self) -> u16; // { 9001 }
-
-    /// The rpc listening port in the beacon side,
-    /// usage(beacon): `--checkpoint-sync-url="http://${peer_ip}:5052"`
-    fn get_sys_rpc_consensus_bn(&self) -> u16; // { 5052 }
+    fn get_el_p2p(&self) -> u16; // { 30303 }
 
     /// The engine API listening port in the execution side
     /// usage(beacon): `--execution-endpoints="http://localhost:8551"`
-    fn get_sys_engine_api(&self) -> u16; // { 8551 }
+    fn get_el_engine_api(&self) -> u16; // { 8551 }
+
+    /// The rpc listening port in the app side,
+    /// eg. ETH el(geth/reth) web3 API rpc
+    fn get_el_rpc(&self) -> u16; // { 8545 }
+
+    /// The p2p(tcp/udp protocol) listening port in the beacon side
+    /// may be used in generating the ENR address for a beacon node
+    fn get_cl_p2p_bn(&self) -> u16; // { 9000 }
+
+    /// The p2p(quic protocol) listening port in the beacon side
+    /// may be used in generating the ENR address for a beacon node
+    fn get_cl_p2p_bn_quic(&self) -> u16; // { 9001 }
+
+    /// The rpc listening port in the beacon side,
+    /// usage(beacon): `--checkpoint-sync-url="http://${peer_ip}:5052"`
+    fn get_cl_rpc_bn(&self) -> u16; // { 5052 }
+
+    /// The rpc listening port in the vc side
+    fn get_cl_rpc_vc(&self) -> u16; // { 5062 }
 }
 
 pub trait NodeCmdGenerator<N, E>:
