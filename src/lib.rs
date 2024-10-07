@@ -6,16 +6,20 @@
 //! and multi-machine distributed mode
 //!
 
-// #![deny(warnings)]
+#![deny(warnings)]
 // #![warn(missing_docs)]
 
-mod common;
+pub mod common;
 
 #[cfg(feature = "beacon_based")]
 pub mod beacon_based;
 
 #[cfg(feature = "tendermint_based")]
 pub mod tendermint_based;
+
+/////////////////////////////////////////////////////////////////////
+
+pub use common::*;
 
 #[cfg(feature = "tendermint_based")]
 pub use tendermint_based::dev as tendermint_dev;
@@ -32,7 +36,6 @@ pub use beacon_based::ddev as beacon_ddev;
 #[cfg(feature = "beacon_based")]
 pub use beacon_based::ddev::{host, remote};
 
-/////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////
 
 #[macro_export]
