@@ -60,8 +60,12 @@ pub trait NodePorts:
     fn get_el_engine_api(&self) -> u16; // { 8551 }
 
     /// The rpc listening port in the app side,
-    /// eg. ETH el(geth/reth) web3 API rpc
+    /// eg. ETH el(geth/reth) web3 http API rpc
     fn get_el_rpc(&self) -> u16; // { 8545 }
+
+    /// The rpc listening port in the app side,
+    /// eg. ETH el(geth/reth) web3 websocket API rpc
+    fn get_el_rpc_ws(&self) -> u16; // { 8546 }
 
     /// The p2p(tcp/udp protocol) listening port in the beacon side
     /// may be used in generating the ENR address for a beacon node

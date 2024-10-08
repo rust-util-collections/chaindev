@@ -12,7 +12,7 @@ use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fmt, fs,
     io::ErrorKind,
     sync::LazyLock,
@@ -223,9 +223,10 @@ where
     /// Non-bootstrap node collection
     pub nodes: BTreeMap<NodeID, N>,
 
-    /// An in-memory cache for recording node status
+    /// An in-memory cache for recording node status,
+    /// use `HashSet` for getting random values.
     #[serde(skip)]
-    pub nodes_should_be_online: BTreeSet<NodeID>,
+    pub nodes_should_be_online: HashSet<NodeID>,
 
     /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)

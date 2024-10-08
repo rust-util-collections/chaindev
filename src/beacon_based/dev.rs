@@ -11,8 +11,7 @@ use nix::{
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet, HashSet},
     fmt,
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
@@ -152,8 +151,9 @@ where
     pub nodes: BTreeMap<NodeID, N>,
 
     /// An in-memory cache for recording node status
+    /// use `HashSet` for getting random values.
     #[serde(skip)]
-    pub nodes_should_be_online: BTreeSet<NodeID>,
+    pub nodes_should_be_online: HashSet<NodeID>,
 
     /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
