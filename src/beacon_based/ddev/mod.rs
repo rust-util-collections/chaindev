@@ -1221,11 +1221,14 @@ impl<P: NodePorts> Node<P> {
         C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if env
-            .node_cmdline_generator
-            .cmd_is_running(self, &env.meta)
+        let cmd = env.node_cmdline_generator.cmd_cnt_running(self, &env.meta);
+        let process_cnt = Remote::from(&self.host)
+            .exec_cmd(&cmd)
             .c(d!())?
-        {
+            .trim()
+            .parse::<u64>()
+            .c(d!())?;
+        if 0 < process_cnt {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
         }
 

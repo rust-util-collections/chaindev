@@ -804,11 +804,13 @@ impl<Ports: NodePorts> Node<Ports> {
         Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
-        if env
-            .node_cmdline_generator
-            .cmd_is_running(self, &env.meta)
-            .c(d!())?
-        {
+        let cmd = env.node_cmdline_generator.cmd_cnt_running(self, &env.meta);
+        let process_cnt = cmd::exec_output(&cmd)
+            .c(d!(&cmd))?
+            .trim()
+            .parse::<u64>()
+            .c(d!())?;
+        if 0 < process_cnt {
             return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
         }
 

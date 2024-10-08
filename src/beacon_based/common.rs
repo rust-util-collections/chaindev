@@ -83,7 +83,7 @@ pub trait NodeCmdGenerator<N, E>:
     Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
 {
     /// Return: whether the target node is running
-    fn cmd_is_running(&self, node: &N, env_meta: &E) -> Result<bool>;
+    fn cmd_cnt_running(&self, node: &N, env_meta: &E) -> String;
 
     /// Return: the custom cmd to start the node
     fn cmd_for_start(&self, node: &N, env_meta: &E) -> String;
