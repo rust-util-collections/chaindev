@@ -62,7 +62,11 @@ where
                     .c(d!())
                     .and_then(|mut env| {
                         env.push_node(
-                            alt!(*is_archive, NodeKind::ArchiveNode, NodeKind::FullNode),
+                            alt!(
+                                *is_archive,
+                                NodeKind::ArchiveNode,
+                                NodeKind::FullNode
+                            ),
                             Some(*node_mark),
                             host_addr.as_ref(),
                         )
@@ -1176,7 +1180,11 @@ where
     }
 
     #[inline(always)]
-    pub fn hosts_put_file(&self, local_path: &str, remote_path: Option<&str>) -> Result<()> {
+    pub fn hosts_put_file(
+        &self,
+        local_path: &str,
+        remote_path: Option<&str>,
+    ) -> Result<()> {
         remote::put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
     }
 
@@ -1191,7 +1199,11 @@ where
     }
 
     #[inline(always)]
-    pub fn hosts_exec(&self, cmd: Option<&str>, script_path: Option<&str>) -> Result<()> {
+    pub fn hosts_exec(
+        &self,
+        cmd: Option<&str>,
+        script_path: Option<&str>,
+    ) -> Result<()> {
         remote::exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
     }
 

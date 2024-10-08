@@ -2,7 +2,8 @@ use super::remote::Remote;
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap, env, fmt, path::PathBuf, str::FromStr, sync::LazyLock, thread,
+    collections::BTreeMap, env, fmt, path::PathBuf, str::FromStr, sync::LazyLock,
+    thread,
 };
 
 static DEFAULT_SSH_USER: LazyLock<String> =

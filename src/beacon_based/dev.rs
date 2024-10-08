@@ -4,7 +4,8 @@
 
 use nix::{
     sys::socket::{
-        self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType, SockaddrIn,
+        self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType,
+        SockaddrIn,
     },
     unistd::{self, ForkResult},
 };
@@ -64,7 +65,11 @@ where
                     .c(d!())
                     .and_then(|mut env| {
                         env.push_node(
-                            alt!(*is_archive, NodeKind::ArchiveNode, NodeKind::FullNode),
+                            alt!(
+                                *is_archive,
+                                NodeKind::ArchiveNode,
+                                NodeKind::FullNode
+                            ),
                             Some(*node_mark),
                         )
                         .c(d!())

@@ -24,7 +24,11 @@ impl<'a> From<&'a HostMeta> for Remote<'a> {
                 addr: h.addr.connection_addr(),
                 user: &h.ssh_user,
                 port: h.ssh_port,
-                local_seckeys: h.ssh_local_seckeys.iter().map(|p| p.as_path()).collect(),
+                local_seckeys: h
+                    .ssh_local_seckeys
+                    .iter()
+                    .map(|p| p.as_path())
+                    .collect(),
             },
         }
     }

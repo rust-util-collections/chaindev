@@ -815,7 +815,11 @@ where
     }
 
     #[inline(always)]
-    fn hosts_put_file(&self, local_path: &str, remote_path: Option<&str>) -> Result<()> {
+    fn hosts_put_file(
+        &self,
+        local_path: &str,
+        remote_path: Option<&str>,
+    ) -> Result<()> {
         remote::put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
     }
 
@@ -1027,7 +1031,9 @@ where
                                 format!(
                                     "{}@{}:{}",
                                     &p.tm_id,
-                                    p.host.addr.connection_addr_x(&n.host.addr.local_id),
+                                    p.host
+                                        .addr
+                                        .connection_addr_x(&n.host.addr.local_id),
                                     p.ports.get_sys_p2p()
                                 )
                             })

@@ -4,7 +4,8 @@
 
 use nix::{
     sys::socket::{
-        self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType, SockaddrIn,
+        self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType,
+        SockaddrIn,
     },
     unistd::{self, ForkResult},
 };
@@ -717,7 +718,8 @@ where
                                 serde_json::to_value(app_state.clone()).c(d!())?;
                             g["consensus_params"]["block"]["max_bytes"] =
                                 serde_json::to_value((MB * 10).to_string()).unwrap();
-                            self.meta.genesis = Some(serde_json::from_value(g).c(d!())?);
+                            self.meta.genesis =
+                                Some(serde_json::from_value(g).c(d!())?);
                             Ok(())
                         })
                 })
