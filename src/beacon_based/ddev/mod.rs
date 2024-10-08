@@ -1218,7 +1218,7 @@ where
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(bound = "")]
 pub struct Node<P: NodePorts> {
-    id: NodeID,
+    pub id: NodeID,
     #[serde(rename = "home_dir")]
     pub home: String,
     pub host: HostMeta,
