@@ -1286,21 +1286,11 @@ impl<P: NodePorts> Node<P> {
 
         self.stop(env, false).c(d!())?;
 
-        let remote_from = Remote::from(&self.host);
-        let cmd_out = env
+        let migrate_fn = env
             .node_cmdline_generator
-            .cmd_for_migrate_out(self, new_node, &env.meta);
+            .cmd_for_migrate(self, new_node, &env.meta);
 
-        let remote_to = Remote::from(&new_node.host);
-        let cmd_in = env
-            .node_cmdline_generator
-            .cmd_for_migrate_in(self, new_node, &env.meta);
-
-        remote_from
-            .exec_cmd(&cmd_out)
-            .c(d!())
-            .and_then(|_| remote_to.exec_cmd(&cmd_in).c(d!()))
-            .map(|_| ())
+        migrate_fn().c(d!())
     }
 }
 

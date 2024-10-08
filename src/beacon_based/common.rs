@@ -95,19 +95,14 @@ pub trait NodeCmdGenerator<N, E>:
     /// Return: the custom cmd to stop the node
     fn cmd_for_stop(&self, node: &N, env_meta: &E, force: bool) -> String;
 
-    /// Return: the custom cmd to migrate a node in
-    fn cmd_for_migrate_in(&self, _src_node: &N, _dst_node: &N, _env_meta: &E) -> String {
-        todo!()
-    }
-
-    /// Return: the custom cmd to migrate a node out
-    fn cmd_for_migrate_out(
+    /// Return: a `FnOnce` containing the full logic for the migration
+    fn cmd_for_migrate(
         &self,
         _src_node: &N,
         _dst_node: &N,
         _env_meta: &E,
-    ) -> String {
-        todo!()
+    ) -> impl FnOnce() -> Result<()> {
+        || Err(eg!("Unimplemented yet !!"))
     }
 }
 
