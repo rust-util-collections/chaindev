@@ -843,26 +843,6 @@ where
         Ok(())
     }
 
-    #[inline(always)]
-    fn hosts_put_file(&self, local_path: &str, remote_path: Option<&str>) -> Result<()> {
-        remote::put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
-    }
-
-    #[inline(always)]
-    fn hosts_get_file(
-        &self,
-        remote_path: &str,
-        local_base_dir: Option<&str>,
-    ) -> Result<()> {
-        remote::get_file_from_hosts(&self.meta.hosts, remote_path, local_base_dir)
-            .c(d!())
-    }
-
-    #[inline(always)]
-    fn hosts_exec(&self, cmd: Option<&str>, script_path: Option<&str>) -> Result<()> {
-        remote::exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
-    }
-
     // 1. Allocate host and ports
     // 2. Create remote home dir
     // 3. Insert new node to the meta of env
@@ -1066,11 +1046,6 @@ where
         check_errlist!(errlist)
     }
 
-    #[inline(always)]
-    pub fn get_env_list() -> Result<Vec<EnvName>> {
-        EnvMeta::<C, Node<P>>::get_env_list().c(d!())
-    }
-
     fn load_env_by_cfg<U>(cfg: &EnvCfg<C, P, U>) -> Result<Env<C, P, S>>
     where
         U: CustomOps,
@@ -1090,18 +1065,6 @@ where
                     Err(eg!("ENV({}) NOT FOUND", &cfg.name))
                 }
             })
-    }
-
-    #[inline(always)]
-    pub fn load_env_by_name(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>> {
-        EnvMeta::<C, Node<P>>::load_env_by_name(cfg_name).c(d!())
-    }
-
-    #[inline(always)]
-    pub fn write_cfg(&self) -> Result<()> {
-        serde_json::to_vec(self)
-            .c(d!())
-            .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
     }
 
     // Alloc <host,ports> for a new node
@@ -1200,6 +1163,43 @@ where
         );
 
         P::try_create(&res).c(d!())
+    }
+
+    #[inline(always)]
+    pub fn get_env_list() -> Result<Vec<EnvName>> {
+        EnvMeta::<C, Node<P>>::get_env_list().c(d!())
+    }
+
+    #[inline(always)]
+    pub fn load_env_by_name(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>> {
+        EnvMeta::<C, Node<P>>::load_env_by_name(cfg_name).c(d!())
+    }
+
+    #[inline(always)]
+    pub fn hosts_put_file(&self, local_path: &str, remote_path: Option<&str>) -> Result<()> {
+        remote::put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
+    }
+
+    #[inline(always)]
+    pub fn hosts_get_file(
+        &self,
+        remote_path: &str,
+        local_base_dir: Option<&str>,
+    ) -> Result<()> {
+        remote::get_file_from_hosts(&self.meta.hosts, remote_path, local_base_dir)
+            .c(d!())
+    }
+
+    #[inline(always)]
+    pub fn hosts_exec(&self, cmd: Option<&str>, script_path: Option<&str>) -> Result<()> {
+        remote::exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
+    }
+
+    #[inline(always)]
+    fn write_cfg(&self) -> Result<()> {
+        serde_json::to_vec(self)
+            .c(d!())
+            .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
     }
 }
 
