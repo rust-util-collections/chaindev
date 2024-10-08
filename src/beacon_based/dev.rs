@@ -66,7 +66,7 @@ where
                     .and_then(|mut env| {
                         env.push_node(
                             alt!(*is_archive, NodeKind::ArchiveNode, NodeKind::FullNode),
-                            *node_mark,
+                            Some(*node_mark),
                         )
                         .c(d!())
                     })
@@ -290,8 +290,7 @@ where
         macro_rules! add_initial_nodes {
             ($kind: expr) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, $kind, NodeMark::default())
-                    .c(d!())?;
+                env.alloc_resources(id, $kind, None).c(d!())?;
             }};
         }
 
@@ -354,7 +353,7 @@ where
 
     // Bootstrap nodes are kept by system for now,
     // so only the other nodes can be added on demand
-    fn push_node(&mut self, kind: NodeKind, mark: NodeMark) -> Result<()> {
+    fn push_node(&mut self, kind: NodeKind, mark: Option<NodeMark>) -> Result<()> {
         let id = self.next_node_id();
         self.alloc_resources(id, kind, mark)
             .c(d!())
@@ -537,7 +536,7 @@ where
         &mut self,
         id: NodeID,
         kind: NodeKind,
-        mark: NodeMark,
+        mark: Option<NodeMark>,
     ) -> Result<()> {
         // 1.
         let home = format!("{}/{}", &self.meta.home, id);
@@ -795,7 +794,7 @@ pub struct Node<Ports: NodePorts> {
     pub home: String,
     pub ports: Ports,
     pub kind: NodeKind,
-    pub mark: NodeMark, // custom mark set by USER
+    pub mark: Option<NodeMark>, // custom mark set by USER
 }
 
 impl<Ports: NodePorts> Node<Ports> {

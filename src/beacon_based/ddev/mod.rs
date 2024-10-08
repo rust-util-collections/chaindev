@@ -63,7 +63,7 @@ where
                     .and_then(|mut env| {
                         env.push_node(
                             alt!(*is_archive, NodeKind::ArchiveNode, NodeKind::FullNode),
-                            *node_mark,
+                            Some(*node_mark),
                             host_addr.as_ref(),
                         )
                         .c(d!())
@@ -415,8 +415,7 @@ where
         macro_rules! add_initial_nodes {
             ($kind: expr) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, $kind, NodeMark::default(), None)
-                    .c(d!())?;
+                env.alloc_resources(id, $kind, None, None).c(d!())?;
             }};
         }
 
@@ -511,7 +510,7 @@ where
     fn push_node(
         &mut self,
         node_kind: NodeKind,
-        node_mark: NodeMark,
+        node_mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
     ) -> Result<()> {
         self.push_node_data(node_kind, node_mark, host_addr)
@@ -522,7 +521,7 @@ where
     fn push_node_data(
         &mut self,
         node_kind: NodeKind,
-        node_mark: NodeMark,
+        node_mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
     ) -> Result<NodeID> {
         let id = self.next_node_id();
@@ -870,7 +869,7 @@ where
         &mut self,
         id: NodeID,
         kind: NodeKind,
-        mark: NodeMark,
+        mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
     ) -> Result<()> {
         self.alloc_hosts_ports(&kind, host_addr) // 1.
@@ -893,7 +892,7 @@ where
         &self,
         id: NodeID,
         kind: NodeKind,
-        mark: NodeMark,
+        mark: Option<NodeMark>,
         host: HostMeta,
         ports: P,
     ) -> Result<Node<P>> {
@@ -1212,7 +1211,7 @@ pub struct Node<P: NodePorts> {
     pub host: HostMeta,
     pub ports: P,
     pub kind: NodeKind,
-    pub mark: u32, // custom mark set by USER
+    pub mark: Option<NodeMark>, // custom mark set by USER
 }
 
 impl<P: NodePorts> Node<P> {
