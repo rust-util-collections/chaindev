@@ -79,9 +79,9 @@ where
             Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.kick_node(*node_id).c(d!())),
-            Op::PushHost(host_expression) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::PushHost(hosts) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.push_host(host_expression.as_str()).c(d!())),
+                .and_then(|mut env| env.push_host(hosts).c(d!())),
             Op::KickHost((host_addr, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.kick_host(host_addr, *force).c(d!())),
@@ -639,18 +639,22 @@ where
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
-    fn push_host(&mut self, host_expression: HostExpressionRef) -> Result<()> {
-        let mut new_hosts = host::param_parse_hosts(host_expression).c(d!())?;
+    fn push_host(&mut self, new_hosts: &Hosts) -> Result<()> {
         if self
             .meta
             .hosts
             .as_ref()
             .keys()
-            .any(|addr| new_hosts.contains_key(addr))
+            .any(|addr| new_hosts.as_ref().contains_key(addr))
         {
             return Err(eg!("One or more hosts already exist"));
         }
-        self.meta.hosts.as_mut().append(&mut new_hosts);
+        self.meta.hosts.as_mut().extend(
+            new_hosts
+                .as_ref()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
         self.write_cfg().c(d!())
     }
 
@@ -1311,8 +1315,7 @@ where
     PushNode((Option<HostAddr>, NodeMark, bool)), // for archive node, set `true`; full node set `false`
     MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
-    // remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey
-    PushHost(HostExpression),
+    PushHost(Hosts),
     KickHost((HostAddr, bool)), // force or not
     Protect,
     Unprotect,

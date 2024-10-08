@@ -126,7 +126,7 @@ pub struct HostMeta {
 
 type HostMap = BTreeMap<HostAddr, Host>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Hosts(HostMap);
 
 impl FromStr for Hosts {
