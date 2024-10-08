@@ -1,3 +1,4 @@
+use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -43,5 +44,20 @@ impl From<&str> for EnvName {
 impl AsRef<str> for EnvName {
     fn as_ref(&self) -> &str {
         &self.name
+    }
+}
+
+/////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////
+
+pub trait CustomOps:
+    Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
+{
+    fn exec(&self, env_name: &EnvName) -> Result<()>;
+}
+
+impl CustomOps for () {
+    fn exec(&self, _: &EnvName) -> Result<()> {
+        Ok(())
     }
 }

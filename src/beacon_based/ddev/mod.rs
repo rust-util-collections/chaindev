@@ -1238,10 +1238,10 @@ impl<P: NodePorts> Node<P> {
         self.write_dev_log(&log).c(d!())
     }
 
-    fn stop<C, U>(&self, env: &Env<C, P, U>, force: bool) -> Result<()>
+    fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
     where
         C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        U: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let cmd = env
             .node_cmdline_generator
