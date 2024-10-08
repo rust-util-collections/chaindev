@@ -527,13 +527,13 @@ where
         node_id: NodeID,
         new_host_addr: Option<&HostAddr>,
     ) -> Result<()> {
-        let (node_id, node_kind, host_addr) = self
+        let old_node = self
             .meta
             .bootstraps
             .get(&node_id)
             .or_else(|| self.meta.nodes.get(&node_id))
-            .c(d!("The target node does not exist"))
-            .map(|n| (n.id, n.kind, n.host.addr.clone()))?;
+            .c(d!("The target node does not exist"))?
+            .clone();
 
         let new_host_addr = if let Some(addr) = new_host_addr {
             addr.clone()
@@ -556,44 +556,31 @@ where
                 })?;
             seq.sort_by(|a, b| a.1.cmp(&b.1));
             seq.into_iter()
-                .find(|h| h.0.addr != host_addr)
+                .find(|h| h.0.addr != old_node.host.addr)
                 .c(d!("no avaliable hosts left, migrate failed"))
                 .map(|h| h.0)?
                 .addr
         };
 
-        if host_addr == new_host_addr {
+        if old_node.host.addr == new_host_addr {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
         let new_node_id = self
-            .push_node_data(node_kind, Some(&new_host_addr))
+            .push_node_data(old_node.kind, Some(&new_host_addr))
             .c(d!())?;
-        let new_base = self
+        let new_node = self
             .meta
             .bootstraps
             .get(&new_node_id)
             .or_else(|| self.meta.nodes.get(&new_node_id))
             .c(d!("BUG"))?;
 
-        self.meta
-            .bootstraps
-            .get(&node_id)
-            .or_else(|| self.meta.nodes.get(&node_id))
-            .c(d!("BUG"))
-            .and_then(|node| {
-                node.migrate(new_base).c(d!()).and_then(|_| {
-                    self.apply_resources(
-                        node.id,
-                        node.kind,
-                        node.host.clone(),
-                        node.ports.clone(),
-                    )
-                    .c(d!())
-                })
-            })?;
-
-        self.kick_node(Some(node_id)).c(d!())
+        old_node
+            .migrate(new_node)
+            .c(d!())
+            .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
+            .and_then(|_| self.start(Some(new_node_id)).c(d!()))
     }
 
     // The bootstrap node should not be removed
@@ -1446,22 +1433,22 @@ impl<P: NodePorts> Node<P> {
 
     // Migrate this node to another host,
     // NOTE: the node ID has been changed
-    fn migrate(&self, new_base: &Node<P>) -> Result<()> {
-        if self.host.addr == new_base.host.addr {
+    fn migrate(&self, new_node: &Node<P>) -> Result<()> {
+        if self.host.addr == new_node.host.addr {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
         let remote_from = Remote::from(&self.host);
-        let remote_to = Remote::from(&new_base.host);
+        let remote_to = Remote::from(&new_node.host);
 
         let source_cfg_path = format!("{}/config", &self.home);
-        let target_cfg_path = format!("{}/config", &new_base.home);
+        let target_cfg_path = format!("{}/config", &new_node.home);
 
         if !remote_from.file_is_dir(&source_cfg_path).c(d!())? {
             return Err(eg!("The source cfg path is invalid"));
         }
 
-        if !remote_to.file_is_dir(&new_base.home).c(d!())? {
+        if !remote_to.file_is_dir(&new_node.home).c(d!())? {
             return Err(eg!("The new base has not been built"));
         }
 

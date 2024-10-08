@@ -145,7 +145,9 @@ pub(crate) static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
 
 // pub(crate) const PRESET_DEPOSIT: u128 = 32 * 10_u128.pow(18); // 32 ETH
 
-pub(crate) type BlockItv = u16;
+pub type BlockItv = u16;
+
+pub type NodeMark = u32;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum NodeKind {

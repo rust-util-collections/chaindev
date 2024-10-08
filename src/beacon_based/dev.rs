@@ -60,16 +60,17 @@ where
             Op::DestroyAll(force) => {
                 Env::<Data, Ports, Cmds>::destroy_all(*force).c(d!())
             }
-            Op::PushNode(is_archive) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| {
-                    env.push_node(alt!(
-                        *is_archive,
-                        NodeKind::ArchiveNode,
-                        NodeKind::FullNode
-                    ))
+            Op::PushNode((node_mark, is_archive)) => {
+                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
-                }),
+                    .and_then(|mut env| {
+                        env.push_node(
+                            alt!(*is_archive, NodeKind::ArchiveNode, NodeKind::FullNode),
+                            *node_mark,
+                        )
+                        .c(d!())
+                    })
+            }
             Op::KickNode(node_id) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.kick_node(*node_id).c(d!())),
@@ -289,7 +290,8 @@ where
         macro_rules! add_initial_nodes {
             ($kind: expr) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, $kind).c(d!())?;
+                env.alloc_resources(id, $kind, NodeMark::default())
+                    .c(d!())?;
             }};
         }
 
@@ -352,9 +354,9 @@ where
 
     // Bootstrap nodes are kept by system for now,
     // so only the other nodes can be added on demand
-    fn push_node(&mut self, kind: NodeKind) -> Result<()> {
+    fn push_node(&mut self, kind: NodeKind, mark: NodeMark) -> Result<()> {
         let id = self.next_node_id();
-        self.alloc_resources(id, kind)
+        self.alloc_resources(id, kind, mark)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
             .and_then(|_| self.start_node(id).c(d!())) // .and_then(|_| self.write_cfg().c(d!()))
@@ -531,7 +533,12 @@ where
 
     // 1. Allocate home dir, ports ..
     // 2. Record the node in its ENV meta
-    fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
+    fn alloc_resources(
+        &mut self,
+        id: NodeID,
+        kind: NodeKind,
+        mark: NodeMark,
+    ) -> Result<()> {
         // 1.
         let home = format!("{}/{}", &self.meta.home, id);
         fs::create_dir_all(&home).c(d!())?;
@@ -544,6 +551,7 @@ where
             home,
             kind,
             ports,
+            mark,
         };
 
         match kind {
@@ -785,8 +793,9 @@ pub struct Node<Ports: NodePorts> {
     pub id: NodeID,
     #[serde(rename = "home_dir")]
     pub home: String,
-    pub kind: NodeKind,
     pub ports: Ports,
+    pub kind: NodeKind,
+    pub mark: NodeMark, // custom mark set by USER
 }
 
 impl<Ports: NodePorts> Node<Ports> {
@@ -878,9 +887,9 @@ where
     Ops: CustomOps,
 {
     Create(EnvOpts<Data>),
-    Destroy(bool),    // force or not
-    DestroyAll(bool), // force or not
-    PushNode(bool),   // for archive node, set `true`; full node set `false`
+    Destroy(bool),              // force or not
+    DestroyAll(bool),           // force or not
+    PushNode((NodeMark, bool)), // for archive node, set `true`; full node set `false`
     KickNode(Option<NodeID>),
     Protect,
     Unprotect,

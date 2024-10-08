@@ -57,12 +57,13 @@ where
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
             Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
-            Op::PushNode((host_addr, is_archive)) => {
+            Op::PushNode((host_addr, node_mark, is_archive)) => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
                         env.push_node(
                             alt!(*is_archive, NodeKind::ArchiveNode, NodeKind::FullNode),
+                            *node_mark,
                             host_addr.as_ref(),
                         )
                         .c(d!())
@@ -414,7 +415,8 @@ where
         macro_rules! add_initial_nodes {
             ($kind: expr) => {{
                 let id = env.next_node_id();
-                env.alloc_resources(id, $kind, None).c(d!())?;
+                env.alloc_resources(id, $kind, NodeMark::default(), None)
+                    .c(d!())?;
             }};
         }
 
@@ -509,9 +511,10 @@ where
     fn push_node(
         &mut self,
         node_kind: NodeKind,
+        node_mark: NodeMark,
         host_addr: Option<&HostAddr>,
     ) -> Result<()> {
-        self.push_node_data(node_kind, host_addr)
+        self.push_node_data(node_kind, node_mark, host_addr)
             .c(d!())
             .and_then(|id| self.start(Some(id)).c(d!()))
     }
@@ -519,10 +522,11 @@ where
     fn push_node_data(
         &mut self,
         node_kind: NodeKind,
+        node_mark: NodeMark,
         host_addr: Option<&HostAddr>,
     ) -> Result<NodeID> {
         let id = self.next_node_id();
-        self.alloc_resources(id, node_kind, host_addr)
+        self.alloc_resources(id, node_kind, node_mark, host_addr)
             .c(d!())
             .and_then(|_| self.write_cfg().c(d!()))
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
@@ -536,13 +540,13 @@ where
         node_id: NodeID,
         new_host_addr: Option<&HostAddr>,
     ) -> Result<()> {
-        let (node_id, node_kind, host_addr) = self
+        let old_node = self
             .meta
             .bootstraps
             .get(&node_id)
             .or_else(|| self.meta.nodes.get(&node_id))
-            .c(d!("The target node does not exist"))
-            .map(|n| (n.id, n.kind, n.host.addr.clone()))?;
+            .c(d!("The target node does not exist"))?
+            .clone();
 
         let new_host_addr = if let Some(addr) = new_host_addr {
             addr.clone()
@@ -565,45 +569,30 @@ where
                 })?;
             seq.sort_by(|a, b| a.1.cmp(&b.1));
             seq.into_iter()
-                .find(|h| h.0.addr != host_addr)
+                .find(|h| h.0.addr != old_node.host.addr)
                 .c(d!("no avaliable hosts left, migrate failed"))
                 .map(|h| h.0)?
                 .addr
         };
 
-        if host_addr == new_host_addr {
+        if old_node.host.addr == new_host_addr {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
         let new_node_id = self
-            .push_node_data(node_kind, Some(&new_host_addr))
+            .push_node_data(old_node.kind, old_node.mark, Some(&new_host_addr))
             .c(d!())?;
-        let new_base = self
+        let new_node = self
             .meta
             .bootstraps
             .get(&new_node_id)
             .or_else(|| self.meta.nodes.get(&new_node_id))
             .c(d!("BUG"))?;
 
-        self.meta
-            .bootstraps
-            .get(&node_id)
-            .or_else(|| self.meta.nodes.get(&node_id))
-            .c(d!("BUG"))
-            .and_then(|node| {
-                node.migrate(new_base, self).c(d!()).and_then(|_| {
-                    self.apply_resources(
-                        node.id,
-                        node.kind,
-                        node.host.clone(),
-                        node.ports.clone(),
-                    )
-                    .c(d!())
-                })
-            })?;
-
-        self.kick_node(Some(node_id))
+        old_node
+            .migrate(new_node, self)
             .c(d!())
+            .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
             .and_then(|_| self.start(Some(new_node_id)).c(d!()))
     }
 
@@ -877,12 +866,13 @@ where
         &mut self,
         id: NodeID,
         kind: NodeKind,
+        mark: NodeMark,
         host_addr: Option<&HostAddr>,
     ) -> Result<()> {
         self.alloc_hosts_ports(&kind, host_addr) // 1.
             .c(d!())
             .and_then(|(host, ports)| {
-                self.apply_resources(id, kind, host, ports).c(d!()) // 2.
+                self.apply_resources(id, kind, mark, host, ports).c(d!()) // 2.
             })
             .map(|node| {
                 match kind {
@@ -899,6 +889,7 @@ where
         &self,
         id: NodeID,
         kind: NodeKind,
+        mark: NodeMark,
         host: HostMeta,
         ports: P,
     ) -> Result<Node<P>> {
@@ -910,6 +901,7 @@ where
                 id,
                 home,
                 kind,
+                mark,
                 host,
                 ports,
             })
@@ -1213,9 +1205,10 @@ pub struct Node<P: NodePorts> {
     id: NodeID,
     #[serde(rename = "home_dir")]
     pub home: String,
-    pub kind: NodeKind,
     pub host: HostMeta,
     pub ports: P,
+    pub kind: NodeKind,
+    pub mark: u32, // custom mark set by USER
 }
 
 impl<P: NodePorts> Node<P> {
@@ -1275,12 +1268,12 @@ impl<P: NodePorts> Node<P> {
 
     // Migrate this node to another host,
     // NOTE: the node ID has been changed
-    fn migrate<C, S>(&self, new_base: &Node<P>, env: &Env<C, P, S>) -> Result<()>
+    fn migrate<C, S>(&self, new_node: &Node<P>, env: &Env<C, P, S>) -> Result<()>
     where
         C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if self.host.addr == new_base.host.addr {
+        if self.host.addr == new_node.host.addr {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
@@ -1289,12 +1282,12 @@ impl<P: NodePorts> Node<P> {
         let remote_from = Remote::from(&self.host);
         let cmd_out = env
             .node_cmdline_generator
-            .cmd_for_migrate_out(self, new_base, &env.meta);
+            .cmd_for_migrate_out(self, new_node, &env.meta);
 
-        let remote_to = Remote::from(&new_base.host);
+        let remote_to = Remote::from(&new_node.host);
         let cmd_in = env
             .node_cmdline_generator
-            .cmd_for_migrate_in(self, new_base, &env.meta);
+            .cmd_for_migrate_in(self, new_node, &env.meta);
 
         remote_from
             .exec_cmd(&cmd_out)
@@ -1313,9 +1306,9 @@ where
     U: CustomOps,
 {
     Create(EnvOpts<C>),
-    Destroy(bool),                      // force or not
-    DestroyAll(bool),                   // force or not
-    PushNode((Option<HostAddr>, bool)), // for archive node, set `true`; full node set `false`
+    Destroy(bool),                                // force or not
+    DestroyAll(bool),                             // force or not
+    PushNode((Option<HostAddr>, NodeMark, bool)), // for archive node, set `true`; full node set `false`
     MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
     // remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey
