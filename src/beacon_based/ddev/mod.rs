@@ -28,24 +28,22 @@ static GLOBAL_BASE_DIR: LazyLock<String> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvCfg<C, P, U>
+pub struct EnvCfg<C, P>
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    U: CustomOps,
 {
     /// The name of this env
     pub name: EnvName,
 
     /// Which operation to trigger/call
-    pub op: Op<C, P, U>,
+    pub op: Op<C, P>,
 }
 
-impl<C, P, U> EnvCfg<C, P, U>
+impl<C, P> EnvCfg<C, P>
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    U: CustomOps,
 {
     pub fn exec<S>(&self, s: S) -> Result<()>
     where
@@ -173,7 +171,6 @@ where
                         })
                 }
             }
-            Op::Custom(custom_op) => custom_op.exec(&self.name).c(d!()),
             Op::Nil(_) => unreachable!(),
         }
     }
@@ -305,10 +302,7 @@ where
 {
     // - Initilize a new env
     // - Create `genesis.json`
-    fn create<U>(cfg: &EnvCfg<C, P, U>, opts: &EnvOpts<C>, s: S) -> Result<()>
-    where
-        U: CustomOps,
-    {
+    fn create(cfg: &EnvCfg<C, P>, opts: &EnvOpts<C>, s: S) -> Result<()> {
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
 
         if opts.force_create {
@@ -1071,10 +1065,7 @@ where
         EnvMeta::<C, Node<P>>::get_env_list().c(d!())
     }
 
-    fn load_env_by_cfg<U>(cfg: &EnvCfg<C, P, U>) -> Result<Env<C, P, S>>
-    where
-        U: CustomOps,
-    {
+    fn load_env_by_cfg(cfg: &EnvCfg<C, P>) -> Result<Env<C, P, S>> {
         Self::load_env_by_name(&cfg.name)
             .c(d!())
             .and_then(|env| match env {
@@ -1238,10 +1229,10 @@ impl<P: NodePorts> Node<P> {
         self.write_dev_log(&log).c(d!())
     }
 
-    fn stop<C, U>(&self, env: &Env<C, P, U>, force: bool) -> Result<()>
+    fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
     where
         C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        U: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let cmd = env
             .node_cmdline_generator
@@ -1296,11 +1287,10 @@ impl<P: NodePorts> Node<P> {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub enum Op<C, P, U>
+pub enum Op<C, P>
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    U: CustomOps,
 {
     Create(EnvOpts<C>),
     Destroy(bool),                                // force or not
@@ -1334,7 +1324,6 @@ where
         script_path: Option<String>,
         hosts: Option<Hosts>,
     },
-    Custom(U),
     Nil(P),
 }
 

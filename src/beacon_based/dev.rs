@@ -27,24 +27,22 @@ static GLOBAL_BASE_DIR: LazyLock<String> =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvCfg<Data, Ports, Ops>
+pub struct EnvCfg<Data, Ports>
 where
     Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     Ports: NodePorts,
-    Ops: CustomOps,
 {
     /// The name of this env
     pub name: EnvName,
 
     /// Which operation to trigger/call
-    pub op: Op<Data, Ports, Ops>,
+    pub op: Op<Data, Ports>,
 }
 
-impl<Data, Ports, Ops> EnvCfg<Data, Ports, Ops>
+impl<Data, Ports> EnvCfg<Data, Ports>
 where
     Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     Ports: NodePorts,
-    Ops: CustomOps,
 {
     pub fn exec<Cmds>(&self, s: Cmds) -> Result<()>
     where
@@ -98,7 +96,6 @@ where
             }
             Op::ShowAll => Env::<Data, Ports, Cmds>::show_all().c(d!()),
             Op::List => Env::<Data, Ports, Cmds>::list_all().c(d!()),
-            Op::Custom(custom_op) => custom_op.exec(&self.name).c(d!()),
             Op::Nil(_) => unreachable!(),
         }
     }
@@ -233,14 +230,7 @@ where
 {
     // - Initilize a new env
     // - Create `genesis.json`
-    fn create<Ops>(
-        cfg: &EnvCfg<Data, Ports, Ops>,
-        opts: &EnvOpts<Data>,
-        s: Cmds,
-    ) -> Result<()>
-    where
-        Ops: CustomOps,
-    {
+    fn create(cfg: &EnvCfg<Data, Ports>, opts: &EnvOpts<Data>, s: Cmds) -> Result<()> {
         let home = format!("{}/envs/{}", &*GLOBAL_BASE_DIR, &cfg.name);
 
         if opts.force_create {
@@ -750,12 +740,7 @@ where
         EnvMeta::<Data, Node<Ports>>::get_env_list().c(d!())
     }
 
-    fn load_env_by_cfg<Ops>(
-        cfg: &EnvCfg<Data, Ports, Ops>,
-    ) -> Result<Env<Data, Ports, Cmds>>
-    where
-        Ops: CustomOps,
-    {
+    fn load_env_by_cfg(cfg: &EnvCfg<Data, Ports>) -> Result<Env<Data, Ports, Cmds>> {
         Self::load_env_by_name(&cfg.name)
             .c(d!())
             .and_then(|env| match env {
@@ -881,11 +866,10 @@ impl<Ports: NodePorts> Node<Ports> {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(bound = "")]
-pub enum Op<Data, Ports, Ops>
+pub enum Op<Data, Ports>
 where
     Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     Ports: NodePorts,
-    Ops: CustomOps,
 {
     Create(EnvOpts<Data>),
     Destroy(bool),              // force or not
@@ -901,7 +885,6 @@ where
     Show,
     ShowAll,
     List,
-    Custom(Ops),
     Nil(Ports),
 }
 
