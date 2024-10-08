@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::{env, fmt, fs, sync::LazyLock};
 
 ///////////////////////////////////////////////////////////////////////////
+
+pub const NODE_HOME_GENESIS_DST: &str = "genesis.tar.gz";
+pub const NODE_HOME_VCDATA_DST: &str = "vcdata.tar.gz";
+
 ///////////////////////////////////////////////////////////////////////////
 
 /// Allocate ports based on this trait

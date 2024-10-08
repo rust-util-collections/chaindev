@@ -654,9 +654,9 @@ where
             cmd::exec_output(&cmd).c(d!())?;
 
             self.meta.genesis =
-                fs::read(format!("{repo}/data/genesis.tar.gz")).c(d!())?;
+                fs::read(format!("{repo}/data/{NODE_HOME_GENESIS_DST}")).c(d!())?;
             self.meta.genesis_vkeys =
-                fs::read(format!("{repo}/data/vcdata.tar.gz")).c(d!())?;
+                fs::read(format!("{repo}/data/{NODE_HOME_VCDATA_DST}")).c(d!())?;
         } else {
             if self.meta.genesis_vkeys.is_empty() {
                 return Err(eg!(
@@ -667,7 +667,7 @@ where
             // extract the tar.gz,
             // update the `block itv` to the value in the genesis
 
-            let genesis = format!("{tmpdir}/genesis.tar.gz");
+            let genesis = format!("{tmpdir}/{NODE_HOME_GENESIS_DST}");
             let yml = format!("{tmpdir}/config.yaml");
             let cmd = format!("tar -xpf {genesis} && cp ${tmpdir}/*/config.yaml {yml}");
             fs::write(&genesis, &self.meta.genesis)
@@ -720,14 +720,14 @@ where
         let mut p;
         let mut cmd;
         for n in nodes.iter() {
-            p = format!("{}/genesis.tar.gz", n.home.as_str());
+            p = format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
             cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
             fs::write(&p, &self.meta.genesis)
                 .c(d!())
                 .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
 
             if n.id == genesis_node_id {
-                p = format!("{}/vcdata.tar.gz", n.home.as_str());
+                p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
                 cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
                 fs::write(&p, &self.meta.genesis_vkeys)
                     .c(d!())
