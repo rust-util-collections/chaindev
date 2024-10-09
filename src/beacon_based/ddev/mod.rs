@@ -994,13 +994,11 @@ where
                 ymlhdr["SECONDS_PER_ETH1_BLOCK"].as_u64().c(d!())?,
             ))
             .c(d!())?;
-
-            self.write_cfg().c(d!())?;
         }
 
         omit!(fs::remove_dir_all(&tmpdir));
 
-        Ok(())
+        self.write_cfg().c(d!())
     }
 
     fn apply_genesis(&self, id: Option<NodeID>) -> Result<()> {
