@@ -12,7 +12,7 @@ use nix::{
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt,
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
@@ -20,6 +20,7 @@ use std::{
     process::{exit, Command, Stdio},
     sync::LazyLock,
 };
+use vsdb::MapxOrd;
 
 pub use super::common::*;
 
@@ -156,9 +157,7 @@ where
     pub nodes: BTreeMap<NodeID, N>,
 
     /// An in-memory cache for recording node status
-    /// use `HashSet` for getting random values.
-    #[serde(skip)]
-    pub nodes_should_be_online: HashSet<NodeID>,
+    pub nodes_should_be_online: MapxOrd<NodeID, ()>,
 
     /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
@@ -282,7 +281,7 @@ where
                 genesis_vkeys,
                 bootstraps: Default::default(),
                 nodes: Default::default(),
-                nodes_should_be_online: Default::default(),
+                nodes_should_be_online: MapxOrd::new(),
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
@@ -614,7 +613,7 @@ where
     #[inline(always)]
     fn update_online_status(&mut self, nodes_in: &[NodeID], nodes_out: &[NodeID]) {
         nodes_in.iter().copied().for_each(|id| {
-            self.meta.nodes_should_be_online.insert(id);
+            self.meta.nodes_should_be_online.insert(&id, &());
         });
 
         nodes_out.iter().for_each(|id| {
@@ -840,7 +839,7 @@ impl<Ports: NodePorts> Node<Ports> {
         let cmd = env
             .node_cmdline_generator
             .cmd_for_stop(self, &env.meta, force);
-        let outputs = cmd::exec_output(&cmd).c(d!())?;
+        let outputs = cmd::exec_output(&cmd).c(d!(&cmd))?;
         let contents = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&contents).c(d!())
     }

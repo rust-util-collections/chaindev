@@ -12,7 +12,7 @@ use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt, fs,
     io::ErrorKind,
     sync::LazyLock,
@@ -228,9 +228,7 @@ where
     pub nodes: BTreeMap<NodeID, N>,
 
     /// An in-memory cache for recording node status,
-    /// use `HashSet` for getting random values.
-    #[serde(skip)]
-    pub nodes_should_be_online: HashSet<NodeID>,
+    pub nodes_should_be_online: MapxOrd<NodeID, ()>,
 
     /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
@@ -386,7 +384,7 @@ where
                 genesis_vkeys,
                 bootstraps: Default::default(),
                 nodes: Default::default(),
-                nodes_should_be_online: Default::default(),
+                nodes_should_be_online: MapxOrd::new(),
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
             },
@@ -904,7 +902,7 @@ where
     #[inline(always)]
     fn update_online_status(&mut self, nodes_in: &[NodeID], nodes_out: &[NodeID]) {
         nodes_in.iter().copied().for_each(|id| {
-            self.meta.nodes_should_be_online.insert(id);
+            self.meta.nodes_should_be_online.insert(&id, &());
         });
 
         nodes_out.iter().for_each(|id| {
