@@ -1295,6 +1295,9 @@ impl<P: NodePorts> Node<P> {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
+        // Fix me:
+        // only the validator client data need to be reserved,
+        // need to wait for the graceful exiting process ?
         self.stop(env, false).c(d!())?;
 
         let migrate_fn = env
