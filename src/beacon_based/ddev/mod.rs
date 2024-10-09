@@ -1410,6 +1410,7 @@ struct PortsCache {
 impl PortsCache {
     fn load_or_create() -> Result<Self> {
         let dir = format!("{}/ports_cache", &*GLOBAL_BASE_DIR);
+        fs::create_dir_all(&dir).c(d!())?;
 
         let meta_path = format!("{}/meta.json", &dir);
 
