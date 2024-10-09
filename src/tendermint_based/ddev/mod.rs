@@ -31,7 +31,7 @@ pub use super::common::*;
 pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, Hosts};
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
-    LazyLock::new(|| format!("{}/__d_dev__", &*BASE_DIR));
+    LazyLock::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
