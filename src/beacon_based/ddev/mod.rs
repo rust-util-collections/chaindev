@@ -269,7 +269,7 @@ where
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read(p) {
-            Ok(d) => Ok(serde_json::from_slice(&d).c(d!())?),
+            Ok(d) => Ok(msgpack::from_slice(&d).c(d!())?),
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => Ok(None),
                 _ => Err(eg!(e)),
@@ -1211,7 +1211,7 @@ where
 
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
-        serde_json::to_vec(self)
+        msgpack::to_vec(self)
             .c(d!())
             .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
     }
