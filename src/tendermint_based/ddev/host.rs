@@ -97,12 +97,15 @@ impl FromStr for HostAddr {
 pub type HostExpression = String;
 pub type HostExpressionRef<'a> = &'a str;
 
+type Weight = u8;
+type WeightGuard = u8;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Host {
     pub meta: HostMeta,
 
     // The weight used when allocating nodes
-    pub(super) weight: u64,
+    pub(super) weight: Weight,
 
     // How many nodes have been created
     pub(super) node_cnt: u64,
@@ -227,7 +230,7 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
             } else {
                 HostAddr::from_str(h[0]).c(d!()).and_then(|addr| {
                     h[2].parse::<u16>().c(d!()).and_then(|p| {
-                        h[3].parse::<u64>().c(d!()).map(|w| Host {
+                        h[3].parse::<WeightGuard>().c(d!()).map(|w| Host {
                             meta: HostMeta {
                                 addr,
                                 ssh_user: h[1].to_owned(),
@@ -238,7 +241,7 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
                                     DEFAULT_SSH_PRIVKEY_PATH.clone()
                                 ),
                             },
-                            weight: w,
+                            weight: w as Weight,
                             node_cnt: 0,
                         })
                     })
