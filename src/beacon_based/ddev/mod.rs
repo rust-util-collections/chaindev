@@ -436,6 +436,7 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
+            .and_then(|_| env.write_cfg().c(d!()))
             .and_then(|_| env.start(None).c(d!()))
     }
 
@@ -814,7 +815,13 @@ where
 
     #[inline(always)]
     fn show(&self) {
-        println!("{}", pnk!(serde_json::to_string_pretty(self)));
+        let mut ret = pnk!(serde_json::to_value(self));
+
+        // Do not display bytes
+        ret["meta"]["genesis"].take();
+        ret["meta"]["genesis_vkeys"].take();
+
+        println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }
 
     // Show the details of all existing ENVs
@@ -1022,18 +1029,12 @@ where
                 let hdr = s.spawn(|| -> Result<()> {
                     let remote = Remote::from(&n.host);
                     let mut p = format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
-                    let mut cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
-                    remote
-                        .write_append_file(&p, &self.meta.genesis)
-                        .c(d!())
-                        .and_then(|_| remote.exec_cmd(&cmd).c(d!()))?;
+                    remote.write_append_file(&p, &self.meta.genesis).c(d!())?;
                     if n.id == genesis_node_id {
                         p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
-                        cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
                         remote
                             .write_append_file(&p, &self.meta.genesis_vkeys)
-                            .c(d!())
-                            .and_then(|_| remote.exec_cmd(&cmd).c(d!()))?;
+                            .c(d!())?;
                     }
                     Ok(())
                 });
@@ -1054,7 +1055,7 @@ where
         U: CustomOps,
     {
         Self::load_env_by_name(&cfg.name)
-            .c(d!())
+            .c(d!(&cfg.name))
             .and_then(|env| match env {
                 Some(env) => Ok(env),
                 None => {

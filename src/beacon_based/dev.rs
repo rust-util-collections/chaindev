@@ -311,6 +311,7 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
+            .and_then(|_| env.write_cfg().c(d!()))
             .and_then(|_| env.start().c(d!()))
     }
 
@@ -429,7 +430,7 @@ where
                 .collect()
         });
 
-        self.update_online_status(&ids, &[]); // self.write_cfg().c(d!())?;
+        self.update_online_status(&ids, &[]);
 
         for i in ids.iter() {
             if let Some(n) = self
@@ -503,7 +504,13 @@ where
 
     #[inline(always)]
     fn show(&self) {
-        println!("{}", pnk!(serde_json::to_string_pretty(self)));
+        let mut ret = pnk!(serde_json::to_value(self));
+
+        // Do not display bytes
+        ret["meta"]["genesis"].take();
+        ret["meta"]["genesis_vkeys"].take();
+
+        println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }
 
     // show the details of all existing ENVs
@@ -730,20 +737,13 @@ where
         let genesis_node_id = *self.meta.bootstraps.keys().next().c(d!())?;
 
         let mut p;
-        let mut cmd;
         for n in nodes.iter() {
             p = format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
-            cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
-            fs::write(&p, &self.meta.genesis)
-                .c(d!())
-                .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
+            fs::write(&p, &self.meta.genesis).c(d!())?;
 
             if n.id == genesis_node_id {
                 p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
-                cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
-                fs::write(&p, &self.meta.genesis_vkeys)
-                    .c(d!())
-                    .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
+                fs::write(&p, &self.meta.genesis_vkeys).c(d!())?;
             }
         }
 
@@ -766,12 +766,14 @@ where
             .and_then(|env| match env {
                 Some(env) => Ok(env),
                 None => {
-                    let msg = "ENV not found";
-                    println!();
-                    println!("********************");
-                    println!("\x1b[01mHINTCmds: \x1b[33;01m{}\x1b[00m", msg);
-                    println!("********************");
-                    Err(eg!(msg))
+                    eprintln!();
+                    eprintln!("********************");
+                    eprintln!(
+                        "\x1b[01mHINTS: \x1b[33;01mENV({}) NOT FOUND\x1b[00m",
+                        &cfg.name
+                    );
+                    eprintln!("********************");
+                    Err(eg!("ENV({}) NOT FOUND", &cfg.name))
                 }
             })
     }
