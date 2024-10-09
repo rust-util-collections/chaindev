@@ -646,8 +646,12 @@ where
             let cfg = format!("{repo}/custom.env");
 
             let gitcmd =
+                format!("git clone https://gitee.com/kt10/EGG.git {repo} || exit 1");
+            let gitcmd2 =
                 format!("git clone https://github.com/NBnet/EGG {repo} || exit 1");
-            cmd::exec_output(&gitcmd).c(d!())?;
+            cmd::exec_output(&gitcmd)
+                .c(d!())
+                .or_else(|_| cmd::exec_output(&gitcmd2).c(d!()))?;
 
             if !self.meta.genesis_pre_settings.is_empty() {
                 fs::write(&cfg, self.meta.genesis_pre_settings.as_bytes()).c(d!())?;
