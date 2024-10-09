@@ -950,7 +950,7 @@ where
                 r#"
                 cd {repo} || exit 1
                 if [ ! -f {cfg} ]; then
-                    cp {cfg}.minimal.example {cfg} || exit 1
+                    cp {cfg}.example {cfg} || exit 1
                 fi
                 if [ 0 -lt {0} ]; then
                     sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
