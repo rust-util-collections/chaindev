@@ -1402,24 +1402,23 @@ static PC: LazyLock<PortsCache> = LazyLock::new(|| pnk!(PortsCache::load_or_crea
 
 #[derive(Serialize, Deserialize)]
 struct PortsCache {
-    vsdb_base_dir: String,
+    dir: String,
     // [ <remote addr + remote port> ]
     port_set: MapxOrd<String, ()>,
 }
 
 impl PortsCache {
     fn load_or_create() -> Result<Self> {
-        let vbd = format!("{}/ports_cache", &*GLOBAL_BASE_DIR);
-        vsdb::vsdb_set_base_dir(&vbd).c(d!())?;
+        let dir = format!("{}/ports_cache", &*GLOBAL_BASE_DIR);
 
-        let meta_path = format!("{}/meta.json", &vbd);
+        let meta_path = format!("{}/meta.json", &dir);
 
         let ret = match fs::read(&meta_path) {
             Ok(c) => serde_json::from_slice(&c).c(d!())?,
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => {
                     let r = Self {
-                        vsdb_base_dir: vbd,
+                        dir,
                         port_set: MapxOrd::new(),
                     };
                     serde_json::to_vec(&r)

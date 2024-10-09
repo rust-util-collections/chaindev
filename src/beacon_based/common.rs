@@ -111,7 +111,7 @@ pub trait NodeCmdGenerator<N, E>:
 
 // global shared paths should not be used to avoid confusion
 // when multiple users share a same physical machine
-pub(crate) static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
+pub static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
     let ret = env::var("RUNTIME_CHAIN_DEV_BASE_DIR").unwrap_or_else(|_| {
         format!(
             "/tmp/__CHAIN_DEV__/beacon_based/{}/{}/{}",
