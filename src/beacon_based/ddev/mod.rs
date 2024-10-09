@@ -956,9 +956,9 @@ where
             cmd::exec_output(&cmd).c(d!())?;
 
             self.meta.genesis =
-                fs::read(format!("{repo}/data/genesis.tar.gz")).c(d!())?;
+                fs::read(format!("{repo}/data/{NODE_HOME_GENESIS_DST}")).c(d!())?;
             self.meta.genesis_vkeys =
-                fs::read(format!("{repo}/data/vcdata.tar.gz")).c(d!())?;
+                fs::read(format!("{repo}/data/{NODE_HOME_VCDATA_DST}")).c(d!())?;
         } else {
             if self.meta.genesis_vkeys.is_empty() {
                 return Err(eg!(
@@ -969,7 +969,7 @@ where
             // extract the tar.gz,
             // update the `block itv` to the value in the genesis
 
-            let genesis = format!("{tmpdir}/genesis.tar.gz");
+            let genesis = format!("{tmpdir}/{NODE_HOME_GENESIS_DST}");
             let yml = format!("{tmpdir}/config.yaml");
             let cmd = format!("tar -xpf {genesis} && cp ${tmpdir}/*/config.yaml {yml}");
             fs::write(&genesis, &self.meta.genesis)
@@ -1021,14 +1021,14 @@ where
             for n in nodes.iter() {
                 let hdr = s.spawn(|| -> Result<()> {
                     let remote = Remote::from(&n.host);
-                    let mut p = format!("{}/genesis.tar.gz", n.home.as_str());
+                    let mut p = format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
                     let mut cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
                     remote
                         .write_append_file(&p, &self.meta.genesis)
                         .c(d!())
                         .and_then(|_| remote.exec_cmd(&cmd).c(d!()))?;
                     if n.id == genesis_node_id {
-                        p = format!("{}/vcdata.tar.gz", n.home.as_str());
+                        p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
                         cmd = format!("tar -C {} -xpf {p}", n.home.as_str());
                         remote
                             .write_append_file(&p, &self.meta.genesis_vkeys)
