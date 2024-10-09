@@ -29,10 +29,7 @@ tendermint-config = { version = "0.37", optional = true }
 toml_edit = { version = "0.22", optional = true }
 
 [features]
-default = [
-    "beacon_based",
-    "tendermint_based",
-]
+default = [ "beacon_based" ]
 
 beacon_based = [ "vsdb_prelude" ]
 

@@ -1,9 +1,9 @@
 //!
-//! # tendermint_dev
+//! # ChainDEV
 //!
-//! Tendermint cluster management,
+//! Blockchain cluster management,
 //! supports both single-machine multi-process mode
-//! and multi-machine distributed mode
+//! and multi-machine distributed mode.
 //!
 
 #![deny(warnings)]

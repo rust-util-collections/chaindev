@@ -4,8 +4,8 @@ use std::fmt;
 
 pub(crate) const ENV_NAME_DEFAULT: &str = "DEFAULT";
 
-pub(crate) const MB: i64 = 1024 * 1024;
-pub(crate) const GB: i64 = 1024 * MB;
+pub const MB: i64 = 1024 * 1024;
+pub const GB: i64 = 1024 * MB;
 
 pub type NodeID = u32;
 
