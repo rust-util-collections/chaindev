@@ -21,7 +21,7 @@ use std::{
 use vsdb::MapxOrd;
 
 pub use super::common::*;
-pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, Hosts};
+pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, HostID, Hosts};
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
     LazyLock::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
@@ -86,9 +86,9 @@ where
             Op::PushHost(hosts) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_host(hosts).c(d!())),
-            Op::KickHost((host_addr, force)) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickHost((host_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_host(host_addr, *force).c(d!())),
+                .and_then(|mut env| env.kick_host(host_id, *force).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
@@ -269,7 +269,7 @@ where
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read(p) {
-            Ok(d) => Ok(msgpack::from_slice(&d).c(d!())?),
+            Ok(d) => Ok(serde_json::from_slice(&d).c(d!())?),
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => Ok(None),
                 _ => Err(eg!(e)),
@@ -629,7 +629,7 @@ where
                 self.meta
                     .hosts
                     .as_mut()
-                    .get_mut(&n.host.addr)
+                    .get_mut(&n.host.addr.host_id())
                     .unwrap()
                     .node_cnt -= 1;
                 n.stop(self, true)
@@ -658,7 +658,7 @@ where
         self.write_cfg().c(d!())
     }
 
-    fn kick_host(&mut self, host_addr: &HostAddr, force: bool) -> Result<()> {
+    fn kick_host(&mut self, host_id: &HostID, force: bool) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -673,7 +673,7 @@ where
                 .bootstraps
                 .values()
                 .chain(self.meta.nodes.values())
-                .filter(|n| &n.host.addr == host_addr)
+                .filter(|n| &n.host.addr.host_id() == host_id)
                 .map(|n| {
                     dup_buf.insert(n.host.addr.clone());
                     n.id
@@ -686,7 +686,7 @@ where
                 self.migrate_node(id, None).c(d!())?;
             }
         } else if let Some(n) =
-            self.meta.hosts.as_ref().get(host_addr).map(|h| h.node_cnt)
+            self.meta.hosts.as_ref().get(host_id).map(|h| h.node_cnt)
         {
             if 0 < n {
                 return Err(eg!("Some nodes are running on this host!"));
@@ -695,7 +695,7 @@ where
             return Err(eg!("The target host does not exist!"));
         }
 
-        self.meta.hosts.as_mut().remove(host_addr);
+        self.meta.hosts.as_mut().remove(host_id);
         self.write_cfg().c(d!())
     }
 
@@ -1094,7 +1094,7 @@ where
                 .meta
                 .hosts
                 .as_ref()
-                .get(addr)
+                .get(&addr.host_id())
                 .c(d!())
                 .map(|h| h.meta.clone());
         }
@@ -1122,7 +1122,12 @@ where
             seq.into_iter().next().c(d!()).map(|h| h.0)?
         };
 
-        self.meta.hosts.as_mut().get_mut(&h.addr).unwrap().node_cnt += 1;
+        self.meta
+            .hosts
+            .as_mut()
+            .get_mut(&h.addr.host_id())
+            .unwrap()
+            .node_cnt += 1;
 
         Ok(h)
     }
@@ -1211,7 +1216,7 @@ where
 
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
-        msgpack::to_vec(self)
+        serde_json::to_vec(self)
             .c(d!())
             .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
     }
@@ -1326,7 +1331,7 @@ where
     MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
     PushHost(Hosts),
-    KickHost((HostAddr, bool)), // force or not
+    KickHost((HostID, bool)), // force or not
     Protect,
     Unprotect,
     Start(Option<NodeID>),

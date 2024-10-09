@@ -46,6 +46,14 @@ impl HostAddr {
             self.connection_addr()
         }
     }
+
+    pub fn host_id(&self) -> HostID {
+        let hash = ruc::algo::hash::keccak::hash_msg(&[
+            self.local.as_bytes(),
+            self.external.as_deref().unwrap_or_default().as_bytes(),
+        ]);
+        ruc::ende::base64::encode(hash)
+    }
 }
 
 impl fmt::Display for HostAddr {
@@ -128,7 +136,9 @@ pub struct HostMeta {
 //     Unknown(String),
 // }
 
-type HostMap = BTreeMap<HostAddr, Host>;
+type HostMap = BTreeMap<HostID, Host>;
+
+pub type HostID = String;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Hosts(HostMap);
@@ -271,7 +281,7 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
 
     let ret = hosts
         .into_iter()
-        .map(|h| (h.meta.addr.clone(), h))
+        .map(|h| (h.meta.addr.host_id(), h))
         .collect::<BTreeMap<_, _>>();
 
     if ret.is_empty() {

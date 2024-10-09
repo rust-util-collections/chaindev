@@ -147,14 +147,17 @@ impl<'a> Remote<'a> {
             .trim()
             .parse::<u64>()
             .c(d!())?;
-        let bogomips = self
-            .exec_cmd(
-            r#"if [[ "Linux" = `uname -s` ]]; then grep bogomips /proc/cpuinfo | head -1 | sed 's/ //g' | cut -d ':' -f 2; elif [[ "Darwin" = `uname -s` ]]; then echo 4000.0; else exit 1; fi"#)
-            .c(d!())?
-            .trim()
-            .parse::<f32>()
-            .c(d!())? as u64;
-        Ok(cpunum.saturating_mul(bogomips))
+
+        // let bogomips = self
+        //     .exec_cmd(
+        //     r#"if [[ "Linux" = `uname -s` ]]; then grep bogomips /proc/cpuinfo | head -1 | sed 's/ //g' | cut -d ':' -f 2; elif [[ "Darwin" = `uname -s` ]]; then echo 4000.0; else exit 1; fi"#)
+        //     .c(d!())?
+        //     .trim()
+        //     .parse::<f32>()
+        //     .c(d!())? as u64;
+        // Ok(cpunum.saturating_mul(bogomips))
+
+        Ok(cpunum)
     }
 
     // pub(super) fn hosts_os(&self) -> Result<HostOS> {
