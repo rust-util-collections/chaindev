@@ -425,9 +425,9 @@ where
         add_initial_nodes!(NodeKind::Bootstrap);
         for _ in 0..opts.initial_node_num {
             add_initial_nodes!(alt!(
-                opts.initial_nodes_archive_mode,
+                opts.initial_nodes_fullnode,
+                NodeKind::FullNode,
                 NodeKind::ArchiveNode,
-                NodeKind::FullNode
             ));
         }
 
@@ -1386,8 +1386,8 @@ where
     /// including the bootstrap node
     pub initial_node_num: u8,
 
-    /// Set nodes as full node by default
-    pub initial_nodes_archive_mode: bool,
+    /// Set nodes as ArchiveNode by default
+    pub initial_nodes_fullnode: bool,
 
     /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
