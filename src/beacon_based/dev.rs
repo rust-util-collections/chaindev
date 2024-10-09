@@ -310,7 +310,6 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.write_cfg().c(d!()))
             .and_then(|_| env.start().c(d!()))
     }
 
@@ -363,7 +362,7 @@ where
         self.alloc_resources(id, kind, mark)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.start_node(id).c(d!())) // .and_then(|_| self.write_cfg().c(d!()))
+            .and_then(|_| self.start_node(id).c(d!()))
     }
 
     // Kick out a target node, or a randomly selected one,
@@ -508,6 +507,7 @@ where
         // Do not display bytes
         ret["meta"]["genesis"].take();
         ret["meta"]["genesis_vkeys"].take();
+        ret["meta"]["nodes_should_be_online"].take();
 
         println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }
@@ -571,9 +571,7 @@ where
             NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
         };
 
-        // self.write_cfg().c(d!())
-
-        Ok(())
+        self.write_cfg().c(d!())
     }
 
     // Global alloctor for ports

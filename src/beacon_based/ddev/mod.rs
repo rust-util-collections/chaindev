@@ -434,7 +434,6 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.write_cfg().c(d!()))
             .and_then(|_| env.start(None).c(d!()))
     }
 
@@ -531,7 +530,6 @@ where
         let id = self.next_node_id();
         self.alloc_resources(id, node_kind, node_mark, host_addr)
             .c(d!())
-            .and_then(|_| self.write_cfg().c(d!()))
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
             .map(|_| id)
     }
@@ -722,7 +720,7 @@ where
                 .collect()
         });
 
-        self.update_online_status(&ids, &[]); // self.write_cfg().c(d!())?;
+        self.update_online_status(&ids, &[]);
 
         let errlist = thread::scope(|s| {
             let mut hdrs = vec![];
@@ -818,6 +816,7 @@ where
         // Do not display bytes
         ret["meta"]["genesis"].take();
         ret["meta"]["genesis_vkeys"].take();
+        ret["meta"]["nodes_should_be_online"].take();
 
         println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }
@@ -873,7 +872,8 @@ where
                     }
                     NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
                 };
-            }) // .and_then(|_| self.write_cfg().c(d!()))
+            })
+            .and_then(|_| self.write_cfg().c(d!()))
     }
 
     #[inline(always)]
