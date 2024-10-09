@@ -597,7 +597,6 @@ where
             .migrate(new_node, self)
             .c(d!())
             .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
-            .and_then(|_| self.start(Some(new_node_id)).c(d!()))
     }
 
     // Kick out a target node, or a randomly selected one,

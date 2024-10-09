@@ -580,7 +580,6 @@ where
             .migrate(new_node)
             .c(d!())
             .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
-            .and_then(|_| self.start(Some(new_node_id)).c(d!()))
     }
 
     // The bootstrap node should not be removed
