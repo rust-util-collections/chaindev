@@ -112,7 +112,7 @@ where
     pub name: EnvName,
 
     /// The data path of this env
-    #[serde(rename = "home_dir")]
+    #[serde(rename = "env_home")]
     pub home: String,
 
     pub host_ip: String,
@@ -803,7 +803,7 @@ pub struct Node<P: NodePorts> {
     pub id: NodeID,
     #[serde(rename = "tendermint_node_id")]
     pub tm_id: String,
-    #[serde(rename = "home_dir")]
+    #[serde(rename = "node_home")]
     pub home: String,
     pub kind: NodeKind,
     pub ports: P,

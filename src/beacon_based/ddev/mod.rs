@@ -11,6 +11,7 @@ use rand::random;
 use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
@@ -191,7 +192,7 @@ where
     pub name: EnvName,
 
     /// The data path of this env
-    #[serde(rename = "home_dir")]
+    #[serde(rename = "env_home")]
     pub home: String,
 
     #[serde(rename = "remote_hosts")]
@@ -824,9 +825,24 @@ where
             }
         }
 
-        meta.remove("genesis");
-        meta.remove("genesis_vkeys");
         meta.remove("nodes_should_be_online");
+
+        if !meta["genesis"].take().as_array().unwrap().is_empty() {
+            meta["genesis"] = Value::String("SET".to_owned());
+        }
+
+        if !meta["genesis_vkeys"].take().as_array().unwrap().is_empty() {
+            meta["genesis_vkeys"] = Value::String("SET".to_owned());
+        }
+
+        if !meta["genesis_pre_settings"]
+            .take()
+            .as_str()
+            .unwrap()
+            .is_empty()
+        {
+            meta["genesis_pre_settings"] = Value::String("SET".to_owned());
+        }
 
         let mut hosts = meta.remove("remote_hosts").unwrap();
         meta.insert(
@@ -1246,7 +1262,7 @@ where
 #[serde(bound = "")]
 pub struct Node<P: NodePorts> {
     pub id: NodeID,
-    #[serde(rename = "home_dir")]
+    #[serde(rename = "node_home")]
     pub home: String,
     pub host: HostMeta,
     pub ports: P,
