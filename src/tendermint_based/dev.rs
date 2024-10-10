@@ -131,8 +131,8 @@ where
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv_secs: BlockItv,
 
-    #[serde(rename = "bootstrap_nodes")]
-    pub bootstraps: BTreeMap<NodeID, N>,
+    #[serde(rename = "fuck_nodes")]
+    pub fucks: BTreeMap<NodeID, N>,
 
     pub nodes: BTreeMap<NodeID, N>,
 
@@ -187,7 +187,7 @@ where
 
     pub fn get_addrports_any_node(&self) -> (&str, Vec<u16>) {
         let addr = self.host_ip.as_str();
-        let node = self.bootstraps.values().chain(self.nodes.values()).next();
+        let node = self.fucks.values().chain(self.nodes.values()).next();
         let ports = pnk!(node).ports.get_port_list();
         (addr, ports)
     }
@@ -245,7 +245,7 @@ where
                 tendermint_extra_opts: opts.tendermint_extra_opts.clone(),
                 block_itv_secs: opts.block_itv_secs,
                 nodes: Default::default(),
-                bootstraps: Default::default(),
+                fucks: Default::default(),
                 genesis: None,
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
@@ -263,7 +263,7 @@ where
             }};
         }
 
-        add_initial_nodes!(Bootstrap);
+        add_initial_nodes!(Fuck);
         for _ in 0..opts.initial_validator_num {
             add_initial_nodes!(Node);
         }
@@ -288,12 +288,7 @@ where
         info_omit!(self.stop(None, true));
         sleep_ms!(100);
 
-        for n in self
-            .meta
-            .bootstraps
-            .values()
-            .chain(self.meta.nodes.values())
-        {
+        for n in self.meta.fucks.values().chain(self.meta.nodes.values()) {
             n.clean().c(d!())?;
         }
 
@@ -312,7 +307,7 @@ where
         Ok(())
     }
 
-    // bootstrap nodes are kept by system for now,
+    // fuck nodes are kept by system for now,
     // so only the other nodes can be added on demand
     fn push_node(&mut self) -> Result<()> {
         let id = self.next_node_id();
@@ -323,7 +318,7 @@ where
             .and_then(|_| self.start(Some(id)).c(d!()))
     }
 
-    // The bootstrap node should not be removed
+    // The fuck node should not be removed
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
@@ -366,7 +361,7 @@ where
     fn start(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -378,12 +373,7 @@ where
             .and_then(|_| self.write_cfg().c(d!()))?;
 
         for i in ids.iter() {
-            if let Some(n) = self
-                .meta
-                .bootstraps
-                .get(i)
-                .or_else(|| self.meta.nodes.get(i))
-            {
+            if let Some(n) = self.meta.fucks.get(i).or_else(|| self.meta.nodes.get(i)) {
                 n.start(self).c(d!())?;
             } else {
                 return Err(eg!("not exist"));
@@ -408,11 +398,7 @@ where
     // - Stop all processes
     // - Release all occupied ports
     fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
-        let mut nodes = self
-            .meta
-            .bootstraps
-            .values()
-            .chain(self.meta.nodes.values());
+        let mut nodes = self.meta.fucks.values().chain(self.meta.nodes.values());
 
         let nodes = if let Some(id) = n {
             vec![nodes.find(|n| n.id == id).c(d!())?]
@@ -473,7 +459,7 @@ where
     }
 
     // 1. Allocate ports
-    // 2. Change configs: ports, bootstrap address, etc
+    // 2. Change configs: ports, fuck address, etc
     // 3. Insert new node to the meta of env
     // 4. Write new configs of tendermint to disk
     fn alloc_resources(&mut self, id: NodeID, kind: NodeKind) -> Result<()> {
@@ -558,7 +544,7 @@ where
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
                 cfg["tx_index"]["indexer"] = toml_value("null");
             }
-            NodeKind::Bootstrap => {
+            NodeKind::Fuck => {
                 cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
                 cfg["tx_index"]["indexer"] = toml_value("kv");
@@ -583,7 +569,7 @@ where
 
         match kind {
             NodeKind::Node => self.meta.nodes.insert(id, node),
-            NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
+            NodeKind::Fuck => self.meta.fucks.insert(id, node),
         };
 
         // 4.
@@ -596,7 +582,7 @@ where
 
         let mut res = vec![];
 
-        if matches!(node_kind, NodeKind::Bootstrap)
+        if matches!(node_kind, NodeKind::Fuck)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved_ports
                 .iter()
@@ -625,12 +611,7 @@ where
     }
 
     fn update_peer_cfg(&self) -> Result<()> {
-        for n in self
-            .meta
-            .nodes
-            .values()
-            .chain(self.meta.bootstraps.values())
-        {
+        for n in self.meta.nodes.values().chain(self.meta.fucks.values()) {
             let cfg_path = format!("{}/config/config.toml", &n.home);
             let mut cfg = fs::read_to_string(&cfg_path)
                 .c(d!())
@@ -639,7 +620,7 @@ where
                 self.meta
                     .nodes
                     .values()
-                    .chain(self.meta.bootstraps.values())
+                    .chain(self.meta.fucks.values())
                     .filter(|peer| peer.id != n.id)
                     .map(|n| {
                         format!(
@@ -743,7 +724,7 @@ where
     fn apply_genesis(&mut self, n: Option<NodeID>) -> Result<()> {
         let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -754,7 +735,7 @@ where
             self.meta
                 .nodes
                 .get(n)
-                .or_else(|| self.meta.bootstraps.get(n))
+                .or_else(|| self.meta.fucks.get(n))
                 .c(d!())
                 .and_then(|n| {
                     TmConfig::load_toml_file(&format!("{}/config/config.toml", &n.home))
@@ -928,7 +909,7 @@ impl<P: NodePorts> Node<P> {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum NodeKind {
     Node,
-    Bootstrap,
+    Fuck,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

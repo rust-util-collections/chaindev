@@ -226,8 +226,8 @@ where
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv_secs: BlockItv,
 
-    #[serde(rename = "bootstrap_nodes")]
-    pub bootstraps: BTreeMap<NodeID, N>,
+    #[serde(rename = "fuck_nodes")]
+    pub fucks: BTreeMap<NodeID, N>,
 
     pub nodes: BTreeMap<NodeID, N>,
 
@@ -281,7 +281,7 @@ where
     }
 
     pub fn get_addrports_any_node(&self) -> (&str, Vec<u16>) {
-        let node = self.bootstraps.values().chain(self.nodes.values()).next();
+        let node = self.fucks.values().chain(self.nodes.values()).next();
         let node = pnk!(node);
         let addr = node.host.addr.connection_addr();
         let ports = node.ports.get_port_list();
@@ -378,7 +378,7 @@ where
                 tendermint_extra_opts: opts.tendermint_extra_opts.clone(),
                 block_itv_secs: opts.block_itv_secs,
                 nodes: Default::default(),
-                bootstraps: Default::default(),
+                fucks: Default::default(),
                 genesis: None,
                 custom_data: opts.custom_data.clone(),
                 next_node_id: Default::default(),
@@ -417,7 +417,7 @@ where
             }};
         }
 
-        add_initial_nodes!(Bootstrap);
+        add_initial_nodes!(Fuck);
         for _ in 0..opts.initial_validator_num {
             add_initial_nodes!(Node);
         }
@@ -445,7 +445,7 @@ where
         let errlist = thread::scope(|s| {
             let hdrs = self
                 .meta
-                .bootstraps
+                .fucks
                 .values()
                 .chain(self.meta.nodes.values())
                 .map(|n| s.spawn(|| n.clean().c(d!())))
@@ -529,7 +529,7 @@ where
     ) -> Result<()> {
         let old_node = self
             .meta
-            .bootstraps
+            .fucks
             .get(&node_id)
             .or_else(|| self.meta.nodes.get(&node_id))
             .c(d!("The target node does not exist"))?
@@ -571,7 +571,7 @@ where
             .c(d!())?;
         let new_node = self
             .meta
-            .bootstraps
+            .fucks
             .get(&new_node_id)
             .or_else(|| self.meta.nodes.get(&new_node_id))
             .c(d!("BUG"))?;
@@ -582,7 +582,7 @@ where
             .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
     }
 
-    // The bootstrap node should not be removed
+    // The fuck node should not be removed
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
@@ -595,7 +595,7 @@ where
             id
         } else {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -606,7 +606,7 @@ where
         self.meta
             .nodes
             .remove(&id)
-            .or_else(|| self.meta.bootstraps.remove(&id))
+            .or_else(|| self.meta.fucks.remove(&id))
             .c(d!("Node ID does not exist?"))
             .and_then(|n| {
                 self.meta
@@ -647,7 +647,7 @@ where
             let mut dup_buf = BTreeSet::new();
             let nodes_to_migrate = self
                 .meta
-                .bootstraps
+                .fucks
                 .values()
                 .chain(self.meta.nodes.values())
                 .filter(|n| &n.host.addr == host_addr)
@@ -690,7 +690,7 @@ where
     fn start(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -705,11 +705,8 @@ where
             let mut hdrs = vec![];
             for i in ids.iter() {
                 let hdr = s.spawn(|| {
-                    if let Some(n) = self
-                        .meta
-                        .bootstraps
-                        .get(i)
-                        .or_else(|| self.meta.nodes.get(i))
+                    if let Some(n) =
+                        self.meta.fucks.get(i).or_else(|| self.meta.nodes.get(i))
                     {
                         n.start(self).c(d!())
                     } else {
@@ -742,11 +739,7 @@ where
     // - Stop all processes
     // - Release all occupied ports
     fn stop(&self, n: Option<NodeID>, force: bool) -> Result<()> {
-        let mut nodes = self
-            .meta
-            .bootstraps
-            .values()
-            .chain(self.meta.nodes.values());
+        let mut nodes = self.meta.fucks.values().chain(self.meta.nodes.values());
 
         let nodes = if let Some(id) = n {
             vec![nodes.find(|n| n.id == id).c(d!())?]
@@ -848,7 +841,7 @@ where
     }
 
     // 1. Allocate host and ports
-    // 2. Change configs: ports, bootstrap address, etc
+    // 2. Change configs: ports, fuck address, etc
     // 3. Write new configs of tendermint to local/remote disk
     // 4. Insert new node to the meta of env
     fn alloc_resources(
@@ -864,7 +857,7 @@ where
             })
             .map(|node| {
                 match kind {
-                    NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
+                    NodeKind::Fuck => self.meta.fucks.insert(id, node),
                     NodeKind::Node => self.meta.nodes.insert(id, node),
                 };
             })
@@ -965,7 +958,7 @@ where
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
                 cfg["tx_index"]["indexer"] = toml_value("null");
             }
-            NodeKind::Bootstrap => {
+            NodeKind::Fuck => {
                 cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
                 cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
                 cfg["tx_index"]["indexer"] = toml_value("kv");
@@ -1004,12 +997,7 @@ where
     fn update_peer_cfg(&self) -> Result<()> {
         let errlist = thread::scope(|s| {
             let mut hdrs = vec![];
-            for n in self
-                .meta
-                .nodes
-                .values()
-                .chain(self.meta.bootstraps.values())
-            {
+            for n in self.meta.nodes.values().chain(self.meta.fucks.values()) {
                 let hdr = s.spawn(|| {
                     self.apply_resources(n.id, n.kind, n.host.clone(), n.ports.clone())
                         .c(d!())?;
@@ -1024,7 +1012,7 @@ where
                         self.meta
                             .nodes
                             .values()
-                            .chain(self.meta.bootstraps.values())
+                            .chain(self.meta.fucks.values())
                             .filter(|p| p.id != n.id)
                             .map(|p| {
                                 format!(
@@ -1150,7 +1138,7 @@ where
     fn apply_genesis(&self, n: Option<NodeID>) -> Result<()> {
         let nodes = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -1165,7 +1153,7 @@ where
                         .meta
                         .nodes
                         .get(n)
-                        .or_else(|| self.meta.bootstraps.get(n))
+                        .or_else(|| self.meta.fucks.get(n))
                         .c(d!())?;
                     let remote = Remote::from(&n.host);
                     let cfgfile = format!("{}/config/config.toml", &n.home);
@@ -1270,7 +1258,7 @@ where
             .max_by(|a, b| a.1.cmp(&b.1))
             .c(d!("BUG"))?;
 
-        let h = if matches!(node_kind, NodeKind::Bootstrap) {
+        let h = if matches!(node_kind, NodeKind::Fuck) {
             max_host
         } else {
             let mut seq = self
@@ -1483,13 +1471,13 @@ impl<P: NodePorts> Node<P> {
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum NodeKind {
     Node,
-    Bootstrap,
+    Fuck,
 }
 
 impl fmt::Display for NodeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
-            Self::Bootstrap => "bootstrap",
+            Self::Fuck => "fuck",
             Self::Node => "node",
         };
         write!(f, "{}", msg)

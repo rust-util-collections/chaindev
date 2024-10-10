@@ -136,7 +136,7 @@ pub type NodeMark = u32;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum NodeKind {
-    Bootstrap,
+    Fuck,
     ArchiveNode,
     FullNode,
 }
@@ -144,7 +144,7 @@ pub enum NodeKind {
 impl fmt::Display for NodeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
-            Self::Bootstrap => "bootstrap_node",
+            Self::Fuck => "fuck_node",
             Self::ArchiveNode => "archive_node",
             Self::FullNode => "full_node",
         };

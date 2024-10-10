@@ -110,6 +110,7 @@ type WeightGuard = u8;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Host {
+    #[serde(flatten)]
     pub meta: HostMeta,
 
     // The weight used when allocating nodes

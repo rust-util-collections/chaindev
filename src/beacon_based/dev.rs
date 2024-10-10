@@ -148,12 +148,12 @@ where
     /// a gzip compressed tar package
     pub genesis_vkeys: Vec<u8>,
 
-    /// The first Bootstrap node
+    /// The first Fuck node
     /// will be treated as the genesis node
-    #[serde(rename = "bootstrap_nodes")]
-    pub bootstraps: BTreeMap<NodeID, N>,
+    #[serde(rename = "fuck_nodes")]
+    pub fucks: BTreeMap<NodeID, N>,
 
-    /// Non-bootstrap node collection
+    /// Non-fuck node collection
     pub nodes: BTreeMap<NodeID, N>,
 
     /// An in-memory cache for recording node status
@@ -210,7 +210,7 @@ where
 
     pub fn get_addrports_any_node(&self) -> (&str, Vec<u16>) {
         let addr = self.host_ip.as_str();
-        let node = self.bootstraps.values().chain(self.nodes.values()).next();
+        let node = self.fucks.values().chain(self.nodes.values()).next();
         let ports = pnk!(node).ports.get_port_list();
         (addr, ports)
     }
@@ -279,7 +279,7 @@ where
                 genesis_pre_settings: opts.genesis_pre_settings.clone(),
                 genesis,
                 genesis_vkeys,
-                bootstraps: Default::default(),
+                fucks: Default::default(),
                 nodes: Default::default(),
                 nodes_should_be_online: MapxOrd::new(),
                 custom_data: opts.custom_data.clone(),
@@ -298,7 +298,7 @@ where
             }};
         }
 
-        add_initial_nodes!(NodeKind::Bootstrap);
+        add_initial_nodes!(NodeKind::Fuck);
         for _ in 0..opts.initial_node_num {
             add_initial_nodes!(alt!(
                 opts.initial_nodes_fullnode,
@@ -331,12 +331,7 @@ where
         // Wait all nodes to be actually stopped
         sleep_ms!(200);
 
-        for n in self
-            .meta
-            .bootstraps
-            .values()
-            .chain(self.meta.nodes.values())
-        {
+        for n in self.meta.fucks.values().chain(self.meta.nodes.values()) {
             n.clean_up().c(d!())?;
         }
 
@@ -355,7 +350,7 @@ where
         Ok(())
     }
 
-    // Bootstrap nodes are kept by system for now,
+    // Fuck nodes are kept by system for now,
     // so only the other nodes can be added on demand
     fn push_node(&mut self, kind: NodeKind, mark: Option<NodeMark>) -> Result<()> {
         let id = self.next_node_id();
@@ -366,7 +361,7 @@ where
     }
 
     // Kick out a target node, or a randomly selected one,
-    // NOTE: the bootstrap node will never be kicked
+    // NOTE: the fuck node will never be kicked
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
@@ -421,7 +416,7 @@ where
     fn launch(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -431,12 +426,7 @@ where
         self.update_online_status(&ids, &[]);
 
         for i in ids.iter() {
-            if let Some(n) = self
-                .meta
-                .bootstraps
-                .get(i)
-                .or_else(|| self.meta.nodes.get(i))
-            {
+            if let Some(n) = self.meta.fucks.get(i).or_else(|| self.meta.nodes.get(i)) {
                 n.start(self).c(d!())?;
             } else {
                 return Err(eg!("not exist"));
@@ -467,7 +457,7 @@ where
                 .meta
                 .nodes
                 .get(&id)
-                .or_else(|| self.meta.bootstraps.get(&id))
+                .or_else(|| self.meta.fucks.get(&id))
             {
                 n.stop(self, force)
                     .c(d!())
@@ -479,7 +469,7 @@ where
             // Need NOT to call the `update_online_status`
             // for an entire stopped ENV, meaningless
             self.meta
-                .bootstraps
+                .fucks
                 .values()
                 .chain(self.meta.nodes.values())
                 .map(|n| n.stop(self, force).c(d!()))
@@ -500,17 +490,31 @@ where
         Ok(())
     }
 
+    // Clean unreadable fields,
+    // make low-readable fields clear
     #[inline(always)]
     fn show(&self) {
         let mut ret = pnk!(serde_json::to_value(self));
 
-        // Clean unreadable fields
-        ret["meta"].as_object_mut().unwrap().remove("genesis");
-        ret["meta"].as_object_mut().unwrap().remove("genesis_vkeys");
-        ret["meta"]
-            .as_object_mut()
+        ret.as_object_mut()
             .unwrap()
-            .remove("nodes_should_be_online");
+            .remove("node_cmdline_generator");
+
+        let meta = ret["meta"].as_object_mut().unwrap();
+
+        for i in ["nodes", "fuck_nodes"] {
+            for n in meta[i].as_object_mut().unwrap().values_mut() {
+                let n = n.as_object_mut().unwrap();
+                let mark = n.remove("mark").unwrap();
+                let mark = alt!(mark.as_null().is_some(), 0, mark.as_u64().unwrap());
+                n.insert("el_type".to_owned(), alt!(0 == mark, "geth", "reth").into());
+                n.insert("cl_type".to_owned(), "lighthouse".into());
+            }
+        }
+
+        meta.remove("genesis");
+        meta.remove("genesis_vkeys");
+        meta.remove("nodes_should_be_online");
 
         println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }
@@ -571,7 +575,7 @@ where
             NodeKind::FullNode | NodeKind::ArchiveNode => {
                 self.meta.nodes.insert(id, node)
             }
-            NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
+            NodeKind::Fuck => self.meta.fucks.insert(id, node),
         };
 
         self.write_cfg().c(d!())
@@ -583,7 +587,7 @@ where
 
         let mut res = vec![];
 
-        if matches!(node_kind, NodeKind::Bootstrap)
+        if matches!(node_kind, NodeKind::Fuck)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved_ports
                 .iter()
@@ -725,18 +729,18 @@ where
             self.meta
                 .nodes
                 .get(&id)
-                .or_else(|| self.meta.bootstraps.get(&id))
+                .or_else(|| self.meta.fucks.get(&id))
                 .c(d!())
                 .map(|n| vec![n])?
         } else {
             self.meta
-                .bootstraps
+                .fucks
                 .values()
                 .chain(self.meta.nodes.values())
                 .collect()
         };
 
-        let genesis_node_id = *self.meta.bootstraps.keys().next().c(d!())?;
+        let genesis_node_id = *self.meta.fucks.keys().next().c(d!())?;
 
         let mut p;
         for n in nodes.iter() {
@@ -943,7 +947,7 @@ where
     pub genesis_vkeys_tgz_path: Option<String>,
 
     /// How many initial nodes should be created,
-    /// including the bootstrap node
+    /// including the fuck node
     pub initial_node_num: u8,
 
     /// Set nodes as ArchiveNode by default

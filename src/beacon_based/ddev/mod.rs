@@ -215,12 +215,12 @@ where
     /// a gzip compressed tar package
     pub genesis_vkeys: Vec<u8>,
 
-    /// The first Bootstrap node
+    /// The first Fuck node
     /// will be treated as the genesis node
-    #[serde(rename = "bootstrap_nodes")]
-    pub bootstraps: BTreeMap<NodeID, N>,
+    #[serde(rename = "fuck_nodes")]
+    pub fucks: BTreeMap<NodeID, N>,
 
-    /// Non-bootstrap node collection
+    /// Non-fuck node collection
     pub nodes: BTreeMap<NodeID, N>,
 
     /// An in-memory cache for recording node status,
@@ -274,7 +274,7 @@ where
     }
 
     pub fn get_addrports_any_node(&self) -> (&str, Vec<u16>) {
-        let node = self.bootstraps.values().chain(self.nodes.values()).next();
+        let node = self.fucks.values().chain(self.nodes.values()).next();
         let node = pnk!(node);
         let addr = node.host.addr.connection_addr();
         let ports = node.ports.get_port_list();
@@ -378,7 +378,7 @@ where
                 genesis_pre_settings: opts.genesis_pre_settings.clone(),
                 genesis,
                 genesis_vkeys,
-                bootstraps: Default::default(),
+                fucks: Default::default(),
                 nodes: Default::default(),
                 nodes_should_be_online: MapxOrd::new(),
                 custom_data: opts.custom_data.clone(),
@@ -418,7 +418,7 @@ where
             }};
         }
 
-        add_initial_nodes!(NodeKind::Bootstrap);
+        add_initial_nodes!(NodeKind::Fuck);
         for _ in 0..opts.initial_node_num {
             add_initial_nodes!(alt!(
                 opts.initial_nodes_fullnode,
@@ -450,7 +450,7 @@ where
         let errlist = thread::scope(|s| {
             let hdrs = self
                 .meta
-                .bootstraps
+                .fucks
                 .values()
                 .chain(self.meta.nodes.values())
                 .map(|n| s.spawn(|| n.clean_up().c(d!())))
@@ -504,7 +504,7 @@ where
         Ok(())
     }
 
-    // Bootstrap nodes are kept by system for now,
+    // Fuck nodes are kept by system for now,
     // so only the other nodes can be added on demand
     fn push_node(
         &mut self,
@@ -539,7 +539,7 @@ where
     ) -> Result<()> {
         let old_node = self
             .meta
-            .bootstraps
+            .fucks
             .get(&node_id)
             .or_else(|| self.meta.nodes.get(&node_id))
             .c(d!("The target node does not exist"))?
@@ -581,7 +581,7 @@ where
             .c(d!())?;
         let new_node = self
             .meta
-            .bootstraps
+            .fucks
             .get(&new_node_id)
             .or_else(|| self.meta.nodes.get(&new_node_id))
             .c(d!("BUG"))?;
@@ -593,7 +593,7 @@ where
     }
 
     // Kick out a target node, or a randomly selected one,
-    // NOTE: the bootstrap node will never be kicked
+    // NOTE: the fuck node will never be kicked
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
@@ -606,7 +606,7 @@ where
             id
         } else {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -619,7 +619,7 @@ where
         self.meta
             .nodes
             .remove(&id)
-            .or_else(|| self.meta.bootstraps.remove(&id))
+            .or_else(|| self.meta.fucks.remove(&id))
             .c(d!("Node ID does not exist?"))
             .and_then(|n| {
                 self.meta
@@ -666,7 +666,7 @@ where
             let mut dup_buf = BTreeSet::new();
             let nodes_to_migrate = self
                 .meta
-                .bootstraps
+                .fucks
                 .values()
                 .chain(self.meta.nodes.values())
                 .filter(|n| &n.host.addr.host_id() == host_id)
@@ -709,7 +709,7 @@ where
     fn start(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
-                .bootstraps
+                .fucks
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -722,11 +722,8 @@ where
             let mut hdrs = vec![];
             for i in ids.iter() {
                 let hdr = s.spawn(|| {
-                    if let Some(n) = self
-                        .meta
-                        .bootstraps
-                        .get(i)
-                        .or_else(|| self.meta.nodes.get(i))
+                    if let Some(n) =
+                        self.meta.fucks.get(i).or_else(|| self.meta.nodes.get(i))
                     {
                         n.start(self).c(d!())
                     } else {
@@ -764,7 +761,7 @@ where
                 .meta
                 .nodes
                 .get(&id)
-                .or_else(|| self.meta.bootstraps.get(&id))
+                .or_else(|| self.meta.fucks.get(&id))
             {
                 n.stop(self, force)
                     .c(d!(&n.host.addr))
@@ -778,7 +775,7 @@ where
             let errlist = thread::scope(|s| {
                 let hdrs = self
                     .meta
-                    .bootstraps
+                    .fucks
                     .values()
                     .chain(self.meta.nodes.values())
                     .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
@@ -805,17 +802,43 @@ where
         Ok(())
     }
 
+    // Clean unreadable fields,
+    // make low-readable fields clear
     #[inline(always)]
     fn show(&self) {
         let mut ret = pnk!(serde_json::to_value(self));
 
-        // Clean unreadable fields
-        ret["meta"].as_object_mut().unwrap().remove("genesis");
-        ret["meta"].as_object_mut().unwrap().remove("genesis_vkeys");
-        ret["meta"]
-            .as_object_mut()
+        ret.as_object_mut()
             .unwrap()
-            .remove("nodes_should_be_online");
+            .remove("node_cmdline_generator");
+
+        let meta = ret["meta"].as_object_mut().unwrap();
+
+        for i in ["nodes", "fuck_nodes"] {
+            for n in meta[i].as_object_mut().unwrap().values_mut() {
+                let n = n.as_object_mut().unwrap();
+                let mark = n.remove("mark").unwrap();
+                let mark = alt!(mark.as_null().is_some(), 0, mark.as_u64().unwrap());
+                n.insert("el_type".to_owned(), alt!(0 == mark, "geth", "reth").into());
+                n.insert("cl_type".to_owned(), "lighthouse".into());
+            }
+        }
+
+        meta.remove("genesis");
+        meta.remove("genesis_vkeys");
+        meta.remove("nodes_should_be_online");
+
+        let mut hosts = meta.remove("remote_hosts").unwrap();
+        meta.insert(
+            "remote_hosts".to_string(),
+            hosts
+                .as_object_mut()
+                .unwrap()
+                .values_mut()
+                .map(|v| v.take())
+                .collect::<Vec<_>>()
+                .into(),
+        );
 
         println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }
@@ -869,7 +892,7 @@ where
                     NodeKind::FullNode | NodeKind::ArchiveNode => {
                         self.meta.nodes.insert(id, node)
                     }
-                    NodeKind::Bootstrap => self.meta.bootstraps.insert(id, node),
+                    NodeKind::Fuck => self.meta.fucks.insert(id, node),
                 };
             })
             .and_then(|_| self.write_cfg().c(d!()))
@@ -1009,18 +1032,18 @@ where
             self.meta
                 .nodes
                 .get(&id)
-                .or_else(|| self.meta.bootstraps.get(&id))
+                .or_else(|| self.meta.fucks.get(&id))
                 .c(d!())
                 .map(|n| vec![n])?
         } else {
             self.meta
-                .bootstraps
+                .fucks
                 .values()
                 .chain(self.meta.nodes.values())
                 .collect()
         };
 
-        let genesis_node_id = *self.meta.bootstraps.keys().next().c(d!())?;
+        let genesis_node_id = *self.meta.fucks.keys().next().c(d!())?;
 
         let errlist = thread::scope(|s| {
             let mut hdrs = vec![];
@@ -1105,7 +1128,7 @@ where
             .max_by(|a, b| a.1.cmp(&b.1))
             .c(d!("BUG"))?;
 
-        let h = if matches!(node_kind, NodeKind::Bootstrap) {
+        let h = if matches!(node_kind, NodeKind::Fuck) {
             max_host
         } else {
             let mut seq = self
@@ -1145,7 +1168,7 @@ where
         // Avoid the preserved ports to be allocated on any validator node,
         // allow non-valdator nodes(on different hosts) to
         // get the owned preserved ports on their own scopes
-        if matches!(node_kind, NodeKind::Bootstrap)
+        if matches!(node_kind, NodeKind::Fuck)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved.iter().all(|hp| !PC.contains(hp))
             && reserved_ports.iter().all(port_is_free)
@@ -1385,7 +1408,7 @@ where
     pub genesis_vkeys_tgz_path: Option<String>,
 
     /// How many initial nodes should be created,
-    /// including the bootstrap node
+    /// including the fuck node
     pub initial_node_num: u8,
 
     /// Set nodes as ArchiveNode by default
