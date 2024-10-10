@@ -504,10 +504,13 @@ where
     fn show(&self) {
         let mut ret = pnk!(serde_json::to_value(self));
 
-        // Do not display bytes
-        ret["meta"]["genesis"].take();
-        ret["meta"]["genesis_vkeys"].take();
-        ret["meta"]["nodes_should_be_online"].take();
+        // Clean unreadable fields
+        ret["meta"].as_object_mut().unwrap().remove("genesis");
+        ret["meta"].as_object_mut().unwrap().remove("genesis_vkeys");
+        ret["meta"]
+            .as_object_mut()
+            .unwrap()
+            .remove("nodes_should_be_online");
 
         println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }
