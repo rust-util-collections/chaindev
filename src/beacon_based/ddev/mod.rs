@@ -992,7 +992,7 @@ where
                 fi
                 if [ 0 -lt {0} ]; then
                     sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
-                    echo 'export SLOT_DURATION_IN_SECONDS="{0}"' >>${cfg} || exit 1
+                    echo 'export SLOT_DURATION_IN_SECONDS="{0}"' >>{cfg} || exit 1
                 fi
                 make minimal_prepare || exit 1
                 make build
@@ -1018,7 +1018,7 @@ where
 
             let genesis = format!("{tmpdir}/{NODE_HOME_GENESIS_DST}");
             let yml = format!("{tmpdir}/config.yaml");
-            let cmd = format!("tar -xpf {genesis} && cp ${tmpdir}/*/config.yaml {yml}");
+            let cmd = format!("tar -xpf {genesis} && cp {tmpdir}/*/config.yaml {yml}");
             fs::write(&genesis, &self.meta.genesis)
                 .c(d!())
                 .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
