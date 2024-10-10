@@ -57,16 +57,12 @@ where
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
             Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
-            Op::PushNode((host_addr, node_mark, is_archive)) => {
+            Op::PushNode((host_addr, node_mark, fullnode)) => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
                         env.push_node(
-                            alt!(
-                                *is_archive,
-                                NodeKind::ArchiveNode,
-                                NodeKind::FullNode
-                            ),
+                            alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode,),
                             Some(*node_mark),
                             host_addr.as_ref(),
                         )
@@ -1325,7 +1321,7 @@ where
     Create(EnvOpts<C>),
     Destroy(bool),                                // force or not
     DestroyAll(bool),                             // force or not
-    PushNode((Option<HostAddr>, NodeMark, bool)), // for archive node, set `true`; full node set `false`
+    PushNode((Option<HostAddr>, NodeMark, bool)), // for full node, set `true`; archive node set `false`
     MigrateNode((NodeID, Option<HostAddr>)),
     KickNode(Option<NodeID>),
     PushHost(Hosts),
