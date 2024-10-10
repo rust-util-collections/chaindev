@@ -35,10 +35,13 @@ pub struct HostAddr {
 }
 
 impl HostAddr {
+    #[inline(always)]
     pub fn connection_addr(&self) -> &str {
         self.external.as_deref().unwrap_or(&self.local)
     }
 
+    /// Use the local ip to get better performance,
+    /// if they are locating in the same local network
     pub fn connection_addr_x(&self, local_id: &str) -> &str {
         if !self.local_id.is_empty() && self.local_id == local_id {
             &self.local
@@ -47,12 +50,9 @@ impl HostAddr {
         }
     }
 
+    #[inline(always)]
     pub fn host_id(&self) -> HostID {
-        let hash = ruc::algo::hash::keccak::hash_msg(&[
-            self.local.as_bytes(),
-            self.external.as_deref().unwrap_or_default().as_bytes(),
-        ]);
-        ruc::ende::base64::encode(hash)
+        self.to_string()
     }
 }
 
