@@ -24,25 +24,23 @@ pub trait NodePorts:
     }
 
     /// Reserve wide-used ports for the default node
-    fn cl_reserved() -> Vec<u16> {
-        // - lighthouse bn(discovery port): 9000
-        // - lighthouse bn(quic port): 9001
-        // - lighthouse bn(http rpc): 5052
-        // - lighthouse bn(prometheus metrics): 5054
-        // - lighthouse vc(http rpc): 5062
-        // - lighthouse vc(prometheus metrics): 5064
-        [9000, 9001, 5052, 5054, 5062, 5064].to_vec()
-    }
+    ///
+    /// - lighthouse bn(discovery port): 9000
+    /// - lighthouse bn(quic port): 9001
+    /// - lighthouse bn(http rpc): 5052
+    /// - lighthouse bn(prometheus metrics): 5054
+    /// - lighthouse vc(http rpc): 5062
+    /// - lighthouse vc(prometheus metrics): 5064
+    fn cl_reserved() -> Vec<u16>;
 
     /// Reserved ports defined by the Execution Client
-    fn el_reserved() -> Vec<u16> {
-        // - geth/reth(web3 rpc): 8545, 8546
-        // - geth/reth(engine api): 8551
-        // - geth/reth(discovery port): 30303
-        // - reth(discovery v5 port): 9200
-        // - geth(prometheus metrics): 6060
-        [8545, 8546, 8551, 30303, 9200, 6060].to_vec()
-    }
+    ///
+    /// - geth/reth(web3 rpc): 8545, 8546
+    /// - geth/reth(engine api): 8551
+    /// - geth/reth(discovery port): 30303
+    /// - reth(discovery v5 port): 9200
+    /// - geth(prometheus metrics): 6060
+    fn el_reserved() -> Vec<u16>;
 
     /// Check and return the new created port set
     fn try_create(ports: &[u16]) -> Result<Self>;
