@@ -1427,7 +1427,6 @@ static PC: LazyLock<PortsCache> = LazyLock::new(|| pnk!(PortsCache::load_or_crea
 
 #[derive(Serialize, Deserialize)]
 struct PortsCache {
-    dir: String,
     // [ <remote addr + remote port> ]
     port_set: MapxOrd<String, ()>,
 }
@@ -1444,7 +1443,6 @@ impl PortsCache {
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => {
                     let r = Self {
-                        dir,
                         port_set: MapxOrd::new(),
                     };
                     serde_json::to_vec(&r)
