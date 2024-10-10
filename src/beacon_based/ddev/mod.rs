@@ -11,7 +11,6 @@ use rand::random;
 use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
@@ -825,24 +824,9 @@ where
             }
         }
 
+        meta.remove("genesis");
+        meta.remove("genesis_vkeys");
         meta.remove("nodes_should_be_online");
-
-        if !meta["genesis"].take().as_array().unwrap().is_empty() {
-            meta["genesis"] = Value::String("SET".to_owned());
-        }
-
-        if !meta["genesis_vkeys"].take().as_array().unwrap().is_empty() {
-            meta["genesis_vkeys"] = Value::String("SET".to_owned());
-        }
-
-        if !meta["genesis_pre_settings"]
-            .take()
-            .as_str()
-            .unwrap()
-            .is_empty()
-        {
-            meta["genesis_pre_settings"] = Value::String("SET".to_owned());
-        }
 
         let mut hosts = meta.remove("remote_hosts").unwrap();
         meta.insert(
