@@ -384,8 +384,6 @@ where
             .collect::<Vec<_>>()
     });
 
-    check_errlist!(@errlist);
-
     path_map.into_iter().for_each(|(f, mut paths)| {
         println!("Files of the '{}' are stored at:", f);
         paths.sort();
@@ -393,6 +391,8 @@ where
             println!("\t- {}", p);
         });
     });
+
+    check_errlist!(@errlist);
 
     Ok(())
 }
@@ -454,8 +454,6 @@ where
             .collect::<Vec<_>>()
     });
 
-    check_errlist!(@errlist);
-
     path_map.into_iter().for_each(|(f, mut paths)| {
         println!("Files of the '{}' are stored at:", f);
         paths.sort();
@@ -463,6 +461,8 @@ where
             println!("\t- {}", p);
         });
     });
+
+    check_errlist!(@errlist);
 
     Ok(())
 }
