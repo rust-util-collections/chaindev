@@ -61,38 +61,92 @@ where
             Op::DestroyAll(force) => {
                 Env::<Data, Ports, Cmds>::destroy_all(*force).c(d!())
             }
-            Op::PushNode((node_mark, is_archive)) => {
+            Op::PushNodes((node_mark, fullnode, num)) => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
-                        env.push_node(
-                            alt!(
-                                *is_archive,
-                                NodeKind::ArchiveNode,
-                                NodeKind::FullNode
-                            ),
-                            Some(*node_mark),
-                        )
-                        .c(d!())
+                        for i in 1..=*num {
+                            let id = env
+                                .push_node(
+                                    alt!(
+                                        *fullnode,
+                                        NodeKind::FullNode,
+                                        NodeKind::ArchiveNode,
+                                    ),
+                                    Some(*node_mark),
+                                )
+                                .c(d!())?;
+                            println!(
+                                "The {i}th new node has been created, NodeID: {id}"
+                            );
+                        }
+                        Ok(())
                     })
             }
-            Op::KickNode(node_id) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| env.kick_node(*node_id).c(d!())),
+            Op::KickNodes((node_ids, num)) => {
+                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|mut env| {
+                        if let Some(ids) = node_ids {
+                            for (i, id) in ids.iter().copied().enumerate() {
+                                let id_returned = env.kick_node(Some(id)).c(d!())?;
+                                assert_eq!(id, id_returned);
+                                println!(
+                                    "The {}th node has been kicked, NodeID: {id}",
+                                    1 + i
+                                );
+                            }
+                        } else {
+                            for i in 1..=*num {
+                                let id = env.kick_node(None).c(d!())?;
+                                println!(
+                                    "The {i}th node has been kicked, NodeID: {id}",
+                                );
+                            }
+                        }
+                        Ok(())
+                    })
+            }
             Op::Protect => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
             Op::Unprotect => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start(node_id) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+            Op::Start(node_ids) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.launch(*node_id).c(d!())),
+                .and_then(|mut env| {
+                    if let Some(ids) = node_ids {
+                        for (i, id) in ids.iter().copied().enumerate() {
+                            env.launch(Some(id)).c(d!())?;
+                            println!(
+                                "The {}th node has been started, NodeID: {id}",
+                                1 + i
+                            );
+                        }
+                        Ok(())
+                    } else {
+                        env.start().c(d!())
+                    }
+                }),
             Op::StartAll => Env::<Data, Ports, Cmds>::start_all().c(d!()),
-            Op::Stop((node_id, force)) => {
+            Op::Stop((node_ids, force)) => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
-                    .and_then(|mut env| env.stop(*node_id, *force).c(d!()))
+                    .and_then(|mut env| {
+                        if let Some(ids) = node_ids {
+                            for (i, id) in ids.iter().copied().enumerate() {
+                                env.stop(Some(id), *force).c(d!())?;
+                                println!(
+                                    "The {}th node has been stopped, NodeID: {id}",
+                                    1 + i
+                                );
+                            }
+                            Ok(())
+                        } else {
+                            env.stop(None, *force).c(d!())
+                        }
+                    })
             }
             Op::StopAll(force) => Env::<Data, Ports, Cmds>::stop_all(*force).c(d!()),
             Op::Show => {
@@ -352,17 +406,18 @@ where
 
     // Fuck nodes are kept by system for now,
     // so only the other nodes can be added on demand
-    fn push_node(&mut self, kind: NodeKind, mark: Option<NodeMark>) -> Result<()> {
+    fn push_node(&mut self, kind: NodeKind, mark: Option<NodeMark>) -> Result<NodeID> {
         let id = self.next_node_id();
         self.alloc_resources(id, kind, mark)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
             .and_then(|_| self.start_node(id).c(d!()))
+            .map(|_| id)
     }
 
     // Kick out a target node, or a randomly selected one,
     // NOTE: the fuck node will never be kicked
-    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
+    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<NodeID> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -390,6 +445,7 @@ where
             .c(d!("Node id does not exist?"))
             .and_then(|n| n.destroy(self).c(d!()))
             .and_then(|_| self.write_cfg().c(d!()))
+            .map(|_| id)
     }
 
     fn protect(&mut self) -> Result<()> {
@@ -901,16 +957,32 @@ where
     Ops: CustomOps,
 {
     Create(EnvOpts<Data>),
-    Destroy(bool),              // force or not
-    DestroyAll(bool),           // force or not
-    PushNode((NodeMark, bool)), // for archive node, set `true`; full node set `false`
-    KickNode(Option<NodeID>),
+    Destroy(bool),    // force or not
+    DestroyAll(bool), // force or not
+    PushNodes(
+        (
+            NodeMark,
+            bool, /*for full node, set `true`; archive node set `false`*/
+            u8,   /*how many new nodes to add*/
+        ),
+    ),
+    KickNodes(
+        (
+            Option<BTreeSet<NodeID>>,
+            u8, /*how many nodes to kick if no specific ids are specified*/
+        ),
+    ),
     Protect,
     Unprotect,
-    Start(Option<NodeID>),
+    Start(Option<BTreeSet<NodeID>>),
     StartAll,
-    Stop((Option<NodeID>, bool)), // force(kill -9) or not
-    StopAll(bool),                // force(kill -9) or not
+    Stop(
+        (
+            Option<BTreeSet<NodeID>>,
+            bool, /*force(kill -9) or not*/
+        ),
+    ),
+    StopAll(bool /*force or not*/),
     Show,
     ShowAll,
     List,

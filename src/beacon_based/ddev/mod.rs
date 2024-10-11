@@ -57,47 +57,120 @@ where
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
             Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
-            Op::PushNode((host_addr, node_mark, fullnode)) => {
+            Op::PushNodes((host_addr, node_mark, fullnode, num)) => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
-                        env.push_node(
-                            alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode,),
-                            Some(*node_mark),
-                            host_addr.as_ref(),
-                        )
-                        .c(d!())
+                        for i in 1..=*num {
+                            let id = env
+                                .push_node(
+                                    alt!(
+                                        *fullnode,
+                                        NodeKind::FullNode,
+                                        NodeKind::ArchiveNode,
+                                    ),
+                                    Some(*node_mark),
+                                    host_addr.as_ref(),
+                                )
+                                .c(d!())?;
+                            println!(
+                                "The {i}th new node has been created, NodeID: {id}"
+                            );
+                        }
+                        Ok(())
                     })
             }
-            Op::MigrateNode((node_id, host_addr)) => {
+            Op::MigrateNodes((node_ids, host_addr)) => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
-                        env.migrate_node(*node_id, host_addr.as_ref()).c(d!())
+                        // `rev()`: migrate newer nodes(bigger id) at first
+                        for (i, id) in node_ids.iter().rev().enumerate() {
+                            env.migrate_node(*id, host_addr.as_ref()).c(d!())?;
+                            println!(
+                                "The {}th node has been migrated, NodeID: {id}",
+                                1 + i
+                            );
+                        }
+                        Ok(())
                     })
             }
-            Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickNodes((node_ids, num)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_node(*node_id).c(d!())),
-            Op::PushHost(hosts) => Env::<C, P, S>::load_env_by_cfg(self)
+                .and_then(|mut env| {
+                    if let Some(ids) = node_ids {
+                        for (i, id) in ids.iter().copied().enumerate() {
+                            let id_returned = env.kick_node(Some(id)).c(d!())?;
+                            assert_eq!(id, id_returned);
+                            println!(
+                                "The {}th node has been kicked, NodeID: {id}",
+                                1 + i
+                            );
+                        }
+                    } else {
+                        for i in 1..=*num {
+                            let id = env.kick_node(None).c(d!())?;
+                            println!("The {i}th node has been kicked, NodeID: {id}",);
+                        }
+                    }
+                    Ok(())
+                }),
+            Op::PushHosts(hosts) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.push_host(hosts).c(d!())),
-            Op::KickHost((host_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
+                .and_then(|mut env| env.push_hosts(hosts).c(d!())),
+            Op::KickHosts((host_ids, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_host(host_id, *force).c(d!())),
+                .and_then(|mut env| {
+                    for (i, id) in host_ids.iter().enumerate() {
+                        let removed_host = env
+                            .kick_host(id, *force)
+                            .c(d!())
+                            .and_then(|h| serde_json::to_string(&h).c(d!()))?;
+                        println!(
+                            "The {i}th host has been kicked, host info: {removed_host}"
+                        );
+                    }
+                    Ok(())
+                }),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Start(node_ids) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.start(*node_id).c(d!())),
+                .and_then(|mut env| {
+                    if let Some(ids) = node_ids {
+                        for (i, id) in ids.iter().copied().enumerate() {
+                            env.start(Some(id)).c(d!())?;
+                            println!(
+                                "The {}th node has been started, NodeID: {id}",
+                                1 + i
+                            );
+                        }
+                        Ok(())
+                    } else {
+                        env.start(None).c(d!())
+                    }
+                }),
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
-            Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Stop((node_ids, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.stop(*node_id, *force).c(d!())),
+                .and_then(|mut env| {
+                    if let Some(ids) = node_ids {
+                        for (i, id) in ids.iter().copied().enumerate() {
+                            env.stop(Some(id), *force).c(d!())?;
+                            println!(
+                                "The {}th node has been stopped, NodeID: {id}",
+                                1 + i
+                            );
+                        }
+                        Ok(())
+                    } else {
+                        env.stop(None, *force).c(d!())
+                    }
+                }),
             Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
@@ -515,10 +588,10 @@ where
         node_kind: NodeKind,
         node_mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
-    ) -> Result<()> {
+    ) -> Result<NodeID> {
         self.push_node_data(node_kind, node_mark, host_addr)
             .c(d!())
-            .and_then(|id| self.start(Some(id)).c(d!()))
+            .and_then(|id| self.start(Some(id)).c(d!()).map(|_| id))
     }
 
     fn push_node_data(
@@ -540,7 +613,7 @@ where
         &mut self,
         node_id: NodeID,
         new_host_addr: Option<&HostAddr>,
-    ) -> Result<()> {
+    ) -> Result<NodeID> {
         let old_node = self
             .meta
             .fucks
@@ -598,7 +671,7 @@ where
 
     // Kick out a target node, or a randomly selected one,
     // NOTE: the fuck node will never be kicked
-    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
+    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<NodeID> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -637,9 +710,10 @@ where
                     .and_then(|_| n.clean_up().c(d!()))
             })
             .and_then(|_| self.write_cfg().c(d!()))
+            .map(|_| id)
     }
 
-    fn push_host(&mut self, new_hosts: &Hosts) -> Result<()> {
+    fn push_hosts(&mut self, new_hosts: &Hosts) -> Result<()> {
         if self
             .meta
             .hosts
@@ -658,7 +732,7 @@ where
         self.write_cfg().c(d!())
     }
 
-    fn kick_host(&mut self, host_id: &HostID, force: bool) -> Result<()> {
+    fn kick_host(&mut self, host_id: &HostID, force: bool) -> Result<Host> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -666,37 +740,37 @@ where
             ));
         }
 
-        if force {
-            let mut dup_buf = BTreeSet::new();
-            let nodes_to_migrate = self
-                .meta
-                .fucks
-                .values()
-                .chain(self.meta.nodes.values())
-                .filter(|n| &n.host.addr.host_id() == host_id)
-                .map(|n| {
-                    dup_buf.insert(n.host.addr.clone());
-                    n.id
-                })
-                .collect::<BTreeSet<_>>();
-            if 2 > dup_buf.len() {
-                return Err(eg!("Host insufficient(num < 2), add more hosts first!"));
-            }
-            for id in nodes_to_migrate.into_iter() {
-                self.migrate_node(id, None).c(d!())?;
-            }
-        } else if let Some(n) =
-            self.meta.hosts.as_ref().get(host_id).map(|h| h.node_cnt)
-        {
-            if 0 < n {
+        if let Some(h) = self.meta.hosts.as_ref().get(host_id) {
+            if force {
+                let mut dup_buf = BTreeSet::new();
+                let nodes_to_migrate = self
+                    .meta
+                    .fucks
+                    .values()
+                    .chain(self.meta.nodes.values())
+                    .filter(|n| &n.host.addr.host_id() == host_id)
+                    .map(|n| {
+                        dup_buf.insert(n.host.addr.clone());
+                        n.id
+                    })
+                    .collect::<BTreeSet<_>>();
+                if 2 > dup_buf.len() {
+                    return Err(eg!(
+                        "Host insufficient(num < 2), add more hosts first!"
+                    ));
+                }
+                for id in nodes_to_migrate.into_iter() {
+                    self.migrate_node(id, None).c(d!())?;
+                }
+            } else if 0 < h.node_cnt {
                 return Err(eg!("Some nodes are running on this host!"));
             }
-        } else {
-            return Err(eg!("The target host does not exist!"));
-        }
 
-        self.meta.hosts.as_mut().remove(host_id);
-        self.write_cfg().c(d!())
+            let removed_host = self.meta.hosts.as_mut().remove(host_id).unwrap();
+            self.write_cfg().c(d!()).map(|_| removed_host)
+        } else {
+            Err(eg!("The target host does not exist!"))
+        }
     }
 
     fn protect(&mut self) -> Result<()> {
@@ -1352,19 +1426,41 @@ where
     U: CustomOps,
 {
     Create(EnvOpts<C>),
-    Destroy(bool),                                // force or not
-    DestroyAll(bool),                             // force or not
-    PushNode((Option<HostAddr>, NodeMark, bool)), // for full node, set `true`; archive node set `false`
-    MigrateNode((NodeID, Option<HostAddr>)),
-    KickNode(Option<NodeID>),
-    PushHost(Hosts),
-    KickHost((HostID, bool)), // force or not
+    Destroy(bool),    // force or not
+    DestroyAll(bool), // force or not
+    PushNodes(
+        (
+            Option<HostAddr>,
+            NodeMark,
+            bool, /*for full node, set `true`; archive node set `false`*/
+            u8,   /*how many new nodes to add*/
+        ),
+    ),
+    MigrateNodes(
+        (
+            BTreeSet<NodeID>,
+            Option<HostAddr>, /*if not set, will select another host from the existing ones*/
+        ),
+    ),
+    KickNodes(
+        (
+            Option<BTreeSet<NodeID>>,
+            u8, /*how many nodes to kick if no specific ids are specified*/
+        ),
+    ),
+    PushHosts(Hosts),
+    KickHosts((Vec<HostID>, bool /*force or not*/)),
     Protect,
     Unprotect,
-    Start(Option<NodeID>),
+    Start(Option<BTreeSet<NodeID>>),
     StartAll,
-    Stop((Option<NodeID>, bool)), // force or not
-    StopAll(bool),                // force or not
+    Stop(
+        (
+            Option<BTreeSet<NodeID>>,
+            bool, /*force(kill -9) or not*/
+        ),
+    ),
+    StopAll(bool /*force or not*/),
     Show,
     ShowAll,
     List,
