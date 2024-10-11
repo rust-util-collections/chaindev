@@ -1,6 +1,6 @@
 [package]
 name = "chaindev"
-version = "0.33.0"
+version = "0.33.1"
 edition = "2021"
 authors = ["hui.fan@mail.ru"]
 description = "Powerful development and testing utils for blockchain developers."
@@ -10,6 +10,9 @@ keywords = ["blockchain", "tendermint", "substrate", "development"]
 license = "GPL-3.0"
 
 # build = "build.rs"
+
+[package.metadata.docs.rs]
+features = [ "beacon_based", "tendermint_based" ]
 
 [dependencies]
 nix = { version = "0.29", features = [ "net", "process", "user", "hostname" ] }
