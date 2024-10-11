@@ -1,5 +1,8 @@
 # Tendermint based blockchain development
 
+> **NOTE:**    
+> Compared to the beacon side, this module is less maintained, some features may be outdated.
+
 Utils for the managements of local and distributed tendermint clusters
 
 Supported versions of [`tendermint-core`](https://github.com/tendermint/tendermint):

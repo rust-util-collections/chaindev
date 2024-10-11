@@ -12,3 +12,4 @@ Powerful development and testing utils for blockchain developers.
     - `feature = [ "beacon_based" ]`, default
 - [Tendermint/CometBFT based chains](src/tendermint_based)
     - `feature = [ "tendermint_based" ]`
+    - **WARNING**: less maintained, new features may be missing!
