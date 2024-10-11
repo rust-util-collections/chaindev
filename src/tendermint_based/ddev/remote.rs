@@ -255,7 +255,7 @@ pub(super) fn exec_cmds_on_hosts(
                 .map(|h| {
                     s.spawn(move || {
                         let remote = Remote::from(h);
-                        info!(remote.exec_cmd(cmd), &h.meta.addr).map(|outputs| {
+                        remote.exec_cmd(cmd).c(d!(&h.meta.addr)).map(|outputs| {
                             let lk = LK.lock();
                             println!("== HOST: {} ==\n{}", &h.meta.addr, outputs);
                             drop(lk);

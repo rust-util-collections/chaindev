@@ -44,12 +44,21 @@ macro_rules! check_errlist {
         if $errlist.is_empty() {
             Ok(())
         } else {
-            Err(eg!("{:#?}", $errlist))
+            Err(eg!($errlist
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")))
         }
     }};
+    // useful fo some middle returns
     (@$errlist: expr) => {{
         if !$errlist.is_empty() {
-            return Err(eg!("{:#?}", $errlist));
+            return Err(eg!($errlist
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")));
         }
     }};
 }

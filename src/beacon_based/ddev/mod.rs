@@ -332,6 +332,7 @@ where
                     .into_iter()
                     .flat_map(|h| h.join())
                     .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
                     .collect::<Vec<_>>();
                 check_errlist!(errlist)
             }));
@@ -407,6 +408,7 @@ where
                 .into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>();
             check_errlist!(errlist)
         })?;
@@ -458,6 +460,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -480,6 +483,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -735,6 +739,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -783,6 +788,7 @@ where
                 hdrs.into_iter()
                     .flat_map(|h| h.join())
                     .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
                     .collect::<Vec<_>>()
             });
 
@@ -1066,6 +1072,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 

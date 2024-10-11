@@ -203,6 +203,7 @@ pub fn put_file_to_hosts(
             .into_iter()
             .flat_map(|h| h.join())
             .filter(|t| t.is_err())
+            .map(|e| e.unwrap_err())
             .collect::<Vec<_>>()
     });
 
@@ -236,6 +237,7 @@ pub fn get_file_from_hosts(
             .into_iter()
             .flat_map(|h| h.join())
             .filter(|t| t.is_err())
+            .map(|e| e.unwrap_err())
             .collect::<Vec<_>>()
     });
 
@@ -258,7 +260,7 @@ pub fn exec_cmds_on_hosts(
                 .map(|h| {
                     s.spawn(move || {
                         let remote = Remote::from(h);
-                        info!(remote.exec_cmd(cmd), &h.meta.addr).map(|outputs| {
+                        remote.exec_cmd(cmd).c(d!(&h.meta.addr)).map(|outputs| {
                             let lk = LK.lock();
                             println!("== HOST: {} ==\n{}", &h.meta.addr, outputs);
                             drop(lk);
@@ -269,6 +271,7 @@ pub fn exec_cmds_on_hosts(
                 .into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
         check_errlist!(errlist)
@@ -311,6 +314,7 @@ pub fn exec_cmds_on_hosts(
                 .into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
         check_errlist!(errlist)
@@ -368,6 +372,7 @@ where
             .into_iter()
             .flat_map(|h| h.join())
             .filter(|t| t.is_err())
+            .map(|e| e.unwrap_err())
             .collect::<Vec<_>>()
     });
 
@@ -381,9 +386,7 @@ where
     });
 
     // Then pop err msg
-    check_errlist!(@errlist);
-
-    Ok(())
+    check_errlist!(errlist)
 }
 
 pub fn collect_tgz_from_nodes<'a, C, P, S>(
@@ -440,6 +443,7 @@ where
             .into_iter()
             .flat_map(|h| h.join())
             .filter(|t| t.is_err())
+            .map(|e| e.unwrap_err())
             .collect::<Vec<_>>()
     });
 
@@ -453,9 +457,7 @@ where
     });
 
     // Then pop err msg
-    check_errlist!(@errlist);
-
-    Ok(())
+    check_errlist!(errlist)
 }
 
 pub(super) fn generate_name_from_path(path: &str) -> String {
