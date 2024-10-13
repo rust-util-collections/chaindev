@@ -13,3 +13,8 @@ Powerful development and testing utils for blockchain developers.
 - [Tendermint/CometBFT based chains](src/tendermint_based)
     - `feature = [ "tendermint_based" ]`
     - **WARNING**: less maintained, new features may be missing!
+
+### ENV VARs
+
+- `$CHAIN_DEV_EGG_REPO`: where to clone the `EGG` package
+    - Default to 'https://github.com/NBnet/EGG'

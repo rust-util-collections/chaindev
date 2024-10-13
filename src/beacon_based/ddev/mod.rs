@@ -13,7 +13,7 @@ use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt, fs,
+    env, fmt, fs,
     io::ErrorKind,
     sync::LazyLock,
     thread,
@@ -1023,7 +1023,7 @@ where
     // If no genesis data set,
     // build from scratch using [EGG](https://github.com/NBnet/EGG)
     fn gen_genesis(&mut self) -> Result<()> {
-        let tmpdir = format!("/tmp/egg_{}_{}", ts!(), rand::random::<u16>());
+        let tmpdir = format!("/tmp/CHAIN_DEV_TMP_{}_{}", ts!(), rand::random::<u16>());
         omit!(fs::remove_dir_all(&tmpdir));
         fs::create_dir_all(&tmpdir).c(d!())?;
 
@@ -1036,13 +1036,12 @@ where
             let repo = format!("{tmpdir}/egg");
             let cfg = format!("{repo}/custom.env");
 
-            let gitcmd =
-                format!("git clone https://gitee.com/kt10/EGG.git {repo} || exit 1");
-            let gitcmd2 =
-                format!("git clone https://github.com/NBnet/EGG {repo} || exit 1");
-            cmd::exec_output(&gitcmd)
-                .c(d!())
-                .or_else(|_| cmd::exec_output(&gitcmd2).c(d!()))?;
+            let repo_url = env::var("CHAIN_DEV_EGG_REPO");
+            let repo_url = repo_url
+                .as_deref()
+                .unwrap_or("https://github.com/NBnet/EGG");
+            let gitcmd = format!("git clone {repo_url} {repo} || exit 1");
+            cmd::exec_output(&gitcmd).c(d!())?;
 
             if !self.meta.genesis_pre_settings.is_empty() {
                 fs::write(&cfg, self.meta.genesis_pre_settings.as_bytes()).c(d!())?;
