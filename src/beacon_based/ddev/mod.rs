@@ -277,7 +277,7 @@ where
     /// The contents of a EGG custom.env,
     ///
     /// Format:
-    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    /// - https://github.com/rust-util-collections/EGG/blob/master/custom.env.example
     pub genesis_pre_settings: String,
 
     /// The network cfg files,
@@ -1021,7 +1021,7 @@ where
     }
 
     // If no genesis data set,
-    // build from scratch using [EGG](https://github.com/NBnet/EGG)
+    // build from scratch using [EGG](https://github.com/rust-util-collections/EGG)
     fn gen_genesis(&mut self) -> Result<()> {
         let tmpdir = format!("/tmp/CHAIN_DEV_TMP_{}_{}", ts!(), rand::random::<u16>());
         omit!(fs::remove_dir_all(&tmpdir));
@@ -1039,7 +1039,7 @@ where
             let repo_url = env::var("CHAIN_DEV_EGG_REPO");
             let repo_url = repo_url
                 .as_deref()
-                .unwrap_or("https://github.com/NBnet/EGG");
+                .unwrap_or("https://github.com/rust-util-collections/EGG");
             let gitcmd = format!("git clone {repo_url} {repo} || exit 1");
             cmd::exec_output(&gitcmd).c(d!())?;
 
@@ -1498,7 +1498,7 @@ where
     /// The contents of a EGG custom.env,
     ///
     /// Format:
-    /// - https://github.com/NBnet/EGG/blob/master/custom.env.example
+    /// - https://github.com/rust-util-collections/EGG/blob/master/custom.env.example
     pub genesis_pre_settings: String,
 
     /// The network cfg files,

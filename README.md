@@ -17,4 +17,4 @@ Powerful development and testing utils for blockchain developers.
 ### ENV VARs
 
 - `$CHAIN_DEV_EGG_REPO`: where to clone the `EGG` package
-    - Default to 'https://github.com/NBnet/EGG'
+    - Default to 'https://github.com/rust-util-collections/EGG'
