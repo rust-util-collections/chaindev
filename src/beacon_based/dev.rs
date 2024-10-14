@@ -576,6 +576,7 @@ where
         meta.remove("genesis");
         meta.remove("genesis_vkeys");
         meta.remove("nodes_should_be_online");
+        meta.remove("next_node_id");
 
         println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
     }

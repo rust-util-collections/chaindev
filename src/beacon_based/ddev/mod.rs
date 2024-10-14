@@ -910,6 +910,7 @@ where
         meta.remove("genesis");
         meta.remove("genesis_vkeys");
         meta.remove("nodes_should_be_online");
+        meta.remove("next_node_id");
 
         let mut hosts = meta.remove("remote_hosts").unwrap();
         meta.insert(
