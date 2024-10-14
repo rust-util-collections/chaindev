@@ -355,7 +355,7 @@ where
 
     let errlist = thread::scope(|s| {
         env.meta
-            .fucks
+            .fuhrers
             .values()
             .chain(env.meta.nodes.values())
             .flat_map(|n| {
@@ -421,7 +421,7 @@ where
 
     let errlist = thread::scope(|s| {
         env.meta
-            .fucks
+            .fuhrers
             .values()
             .chain(env.meta.nodes.values())
             .flat_map(|n| {

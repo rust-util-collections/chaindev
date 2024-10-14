@@ -202,12 +202,12 @@ where
     /// a gzip compressed tar package
     pub genesis_vkeys: Vec<u8>,
 
-    /// The first Fuck node
+    /// The first Fuhrer node
     /// will be treated as the genesis node
-    #[serde(rename = "fuck_nodes")]
-    pub fucks: BTreeMap<NodeID, N>,
+    #[serde(rename = "fuhrer_nodes")]
+    pub fuhrers: BTreeMap<NodeID, N>,
 
-    /// Non-fuck node collection
+    /// Non-fuhrer node collection
     pub nodes: BTreeMap<NodeID, N>,
 
     /// An in-memory cache for recording node status
@@ -264,7 +264,7 @@ where
 
     pub fn get_addrports_any_node(&self) -> (&str, Vec<u16>) {
         let addr = self.host_ip.as_str();
-        let node = self.fucks.values().chain(self.nodes.values()).next();
+        let node = self.fuhrers.values().chain(self.nodes.values()).next();
         let ports = pnk!(node).ports.get_port_list();
         (addr, ports)
     }
@@ -333,7 +333,7 @@ where
                 genesis_pre_settings: opts.genesis_pre_settings.clone(),
                 genesis,
                 genesis_vkeys,
-                fucks: Default::default(),
+                fuhrers: Default::default(),
                 nodes: Default::default(),
                 nodes_should_be_online: MapxOrd::new(),
                 custom_data: opts.custom_data.clone(),
@@ -352,7 +352,7 @@ where
             }};
         }
 
-        add_initial_nodes!(NodeKind::Fuck);
+        add_initial_nodes!(NodeKind::Fuhrer);
         for _ in 0..opts.initial_node_num {
             add_initial_nodes!(alt!(
                 opts.initial_nodes_fullnode,
@@ -385,7 +385,7 @@ where
         // Wait all nodes to be actually stopped
         sleep_ms!(200);
 
-        for n in self.meta.fucks.values().chain(self.meta.nodes.values()) {
+        for n in self.meta.fuhrers.values().chain(self.meta.nodes.values()) {
             n.clean_up().c(d!())?;
         }
 
@@ -404,7 +404,7 @@ where
         Ok(())
     }
 
-    // Fuck nodes are kept by system for now,
+    // Fuhrer nodes are kept by system for now,
     // so only the other nodes can be added on demand
     fn push_node(&mut self, kind: NodeKind, mark: Option<NodeMark>) -> Result<NodeID> {
         let id = self.next_node_id();
@@ -416,7 +416,7 @@ where
     }
 
     // Kick out a target node, or a randomly selected one,
-    // NOTE: the fuck node will never be kicked
+    // NOTE: the fuhrer node will never be kicked
     fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<NodeID> {
         if self.is_protected {
             return Err(eg!(
@@ -437,8 +437,8 @@ where
                 .c(d!("No kickable nodes found"))?
         };
 
-        if self.meta.fucks.contains_key(&id) {
-            return Err(eg!("Node-[{id}] is a fuck node, deny to kick"));
+        if self.meta.fuhrers.contains_key(&id) {
+            return Err(eg!("Node-[{id}] is a fuhrer node, deny to kick"));
         }
 
         self.meta
@@ -477,7 +477,7 @@ where
     fn launch(&mut self, n: Option<NodeID>) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
-                .fucks
+                .fuhrers
                 .keys()
                 .chain(self.meta.nodes.keys())
                 .copied()
@@ -487,7 +487,8 @@ where
         self.update_online_status(&ids, &[]);
 
         for i in ids.iter() {
-            if let Some(n) = self.meta.fucks.get(i).or_else(|| self.meta.nodes.get(i)) {
+            if let Some(n) = self.meta.fuhrers.get(i).or_else(|| self.meta.nodes.get(i))
+            {
                 n.start(self).c(d!())?;
             } else {
                 return Err(eg!("not exist"));
@@ -518,7 +519,7 @@ where
                 .meta
                 .nodes
                 .get(&id)
-                .or_else(|| self.meta.fucks.get(&id))
+                .or_else(|| self.meta.fuhrers.get(&id))
             {
                 n.stop(self, force)
                     .c(d!())
@@ -530,7 +531,7 @@ where
             // Need NOT to call the `update_online_status`
             // for an entire stopped ENV, meaningless
             self.meta
-                .fucks
+                .fuhrers
                 .values()
                 .chain(self.meta.nodes.values())
                 .map(|n| n.stop(self, force).c(d!()))
@@ -563,7 +564,7 @@ where
 
         let meta = ret["meta"].as_object_mut().unwrap();
 
-        for i in ["nodes", "fuck_nodes"] {
+        for i in ["nodes", "fuhrer_nodes"] {
             for n in meta[i].as_object_mut().unwrap().values_mut() {
                 let n = n.as_object_mut().unwrap();
                 let mark = n.remove("mark").unwrap();
@@ -637,7 +638,7 @@ where
             NodeKind::FullNode | NodeKind::ArchiveNode => {
                 self.meta.nodes.insert(id, node)
             }
-            NodeKind::Fuck => self.meta.fucks.insert(id, node),
+            NodeKind::Fuhrer => self.meta.fuhrers.insert(id, node),
         };
 
         self.write_cfg().c(d!())
@@ -649,7 +650,7 @@ where
 
         let mut res = vec![];
 
-        if matches!(node_kind, NodeKind::Fuck)
+        if matches!(node_kind, NodeKind::Fuhrer)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved_ports
                 .iter()
@@ -790,18 +791,18 @@ where
             self.meta
                 .nodes
                 .get(&id)
-                .or_else(|| self.meta.fucks.get(&id))
+                .or_else(|| self.meta.fuhrers.get(&id))
                 .c(d!())
                 .map(|n| vec![n])?
         } else {
             self.meta
-                .fucks
+                .fuhrers
                 .values()
                 .chain(self.meta.nodes.values())
                 .collect()
         };
 
-        let genesis_node_id = *self.meta.fucks.keys().next().c(d!())?;
+        let genesis_node_id = *self.meta.fuhrers.first_key_value().c(d!())?.0;
 
         let mut p;
         for n in nodes.iter() {
@@ -1024,7 +1025,7 @@ where
     pub genesis_vkeys_tgz_path: Option<String>,
 
     /// How many initial nodes should be created,
-    /// including the fuck node
+    /// including the fuhrer node
     pub initial_node_num: u8,
 
     /// Set nodes as ArchiveNode by default
