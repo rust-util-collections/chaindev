@@ -105,6 +105,13 @@ pub struct Host {
     pub(super) node_cnt: u64,
 }
 
+impl Host {
+    #[inline(always)]
+    pub fn host_id(&self) -> HostID {
+        self.meta.host_id()
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HostMeta {
     // addr, addr_ext_ip
@@ -116,6 +123,13 @@ pub struct HostMeta {
     pub ssh_port: u16,
     #[serde(default)]
     pub(super) ssh_local_seckeys: Vec<PathBuf>,
+}
+
+impl HostMeta {
+    #[inline(always)]
+    pub fn host_id(&self) -> HostID {
+        self.addr.host_id()
+    }
 }
 
 fn default_ssh_user() -> String {

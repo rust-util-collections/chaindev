@@ -437,13 +437,18 @@ where
                 .c(d!("No kickable nodes found"))?
         };
 
-        self.update_online_status(&[], &[id]);
+        if self.meta.fucks.contains_key(&id) {
+            return Err(eg!("Node-[{id}] is a fuck node, deny to kick"));
+        }
 
         self.meta
             .nodes
             .remove(&id)
             .c(d!("Node id does not exist?"))
-            .and_then(|n| n.destroy(self).c(d!()))
+            .and_then(|n| {
+                self.update_online_status(&[], &[id]);
+                n.destroy(self).c(d!())
+            })
             .and_then(|_| self.write_cfg().c(d!()))
             .map(|_| id)
     }

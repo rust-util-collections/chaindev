@@ -221,6 +221,8 @@ pub fn get_file_from_hosts(
     let remote_file = remote_path.file_name().c(d!())?.to_str().c(d!())?;
     let remote_path = &remote_path;
 
+    let mut local_paths = vec![];
+
     let errlist = thread::scope(|s| {
         hosts
             .as_ref()
@@ -230,15 +232,29 @@ pub fn get_file_from_hosts(
                     format!("{}/{}_{}", local_base_dir, &h.meta.addr, remote_file);
                 s.spawn(move || {
                     let remote = Remote::from(h);
-                    remote.get_file(remote_path, local_path).c(d!())
+                    remote
+                        .get_file(remote_path, &local_path)
+                        .c(d!())
+                        .map(|_| (h.host_id(), local_path))
                 })
             })
             .collect::<Vec<_>>()
             .into_iter()
             .flat_map(|h| h.join())
+            .map(|lp| {
+                lp.map(|lp| {
+                    local_paths.push(lp);
+                })
+            })
             .filter(|t| t.is_err())
             .map(|e| e.unwrap_err())
             .collect::<Vec<_>>()
+    });
+
+    // Print good resp at first,
+    local_paths.sort_by(|a, b| a.0.cmp(&b.0));
+    local_paths.into_iter().for_each(|(h, p)| {
+        println!("HOST-[{h}] file are stored at:\n\t{p}");
     });
 
     check_errlist!(errlist)

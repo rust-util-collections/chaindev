@@ -691,7 +691,9 @@ where
                 .c(d!("no node found"))?
         };
 
-        self.update_online_status(&[], &[id]);
+        if self.meta.fucks.contains_key(&id) {
+            return Err(eg!("Node-[{id}] is a fuck node, deny to kick"));
+        }
 
         self.meta
             .nodes
@@ -699,6 +701,7 @@ where
             .or_else(|| self.meta.fucks.remove(&id))
             .c(d!("Node ID does not exist?"))
             .and_then(|n| {
+                self.update_online_status(&[], &[id]);
                 self.meta
                     .hosts
                     .as_mut()
