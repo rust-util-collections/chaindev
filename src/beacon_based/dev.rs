@@ -712,6 +712,7 @@ where
 
             let repo = format!("{tmpdir}/egg");
             let cfg = format!("{repo}/custom.env");
+            let block_itv_cache = format!("{tmpdir}/block_itv");
 
             let repo_url = env::var("CHAIN_DEV_EGG_REPO");
             let repo_url = repo_url
@@ -734,6 +735,7 @@ where
                     sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
                     echo 'export SLOT_DURATION_IN_SECONDS="{0}"' >>{cfg} || exit 1
                 fi
+                grep -Po '(?<= SLOT_DURATION_IN_SECONDS=")\d+' {cfg} >{block_itv_cache} || exit 1
                 make minimal_prepare || exit 1
                 make build
                 "#,
@@ -741,6 +743,10 @@ where
             );
 
             cmd::exec_output(&cmd).c(d!())?;
+
+            self.meta.block_itv = fs::read_to_string(block_itv_cache)
+                .c(d!())
+                .and_then(|itv| itv.trim().parse::<BlockItv>().c(d!()))?;
 
             self.meta.genesis =
                 fs::read(format!("{repo}/data/{NODE_HOME_GENESIS_DST}")).c(d!())?;
