@@ -97,13 +97,13 @@ impl<'a> Remote<'a> {
             .map_err(|e| eg!(e))
     }
 
-    pub fn write_append_file<P: AsRef<Path>>(
+    pub fn append_file<P: AsRef<Path>>(
         &self,
         remote_path: P,
         contents: &[u8],
     ) -> Result<()> {
         self.inner
-            .write_file(remote_path, contents)
+            .append_file(remote_path, contents)
             .map_err(|e| eg!(e))
     }
 
@@ -310,7 +310,7 @@ pub fn exec_cmds_on_hosts(
                     let tmp_script_path = &tmp_script_path;
                     s.spawn(move || {
                         remote
-                            .write_append_file(tmp_script_path, script)
+                            .replace_file(tmp_script_path, script)
                             .c(d!())
                             .and_then(|_| {
                                 info!(remote.exec_cmd(cmd), &h.meta.addr).map(

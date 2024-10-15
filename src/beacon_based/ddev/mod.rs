@@ -1157,12 +1157,10 @@ where
                 let hdr = s.spawn(|| -> Result<()> {
                     let remote = Remote::from(&n.host);
                     let mut p = format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
-                    remote.write_append_file(&p, &self.meta.genesis).c(d!())?;
+                    remote.replace_file(&p, &self.meta.genesis).c(d!())?;
                     if n.id == genesis_node_id {
                         p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
-                        remote
-                            .write_append_file(&p, &self.meta.genesis_vkeys)
-                            .c(d!())?;
+                        remote.replace_file(&p, &self.meta.genesis_vkeys).c(d!())?;
                     }
                     Ok(())
                 });
@@ -1401,7 +1399,7 @@ impl<P: NodePorts> Node<P> {
         let log = format!("\n\n[ {} ]\n{}: {}", datetime!(), &self.host.addr, log);
         let logfile = format!("{}/mgmt.log", &self.home);
         Remote::from(&self.host)
-            .write_append_file(logfile, log.as_bytes())
+            .append_file(logfile, log.as_bytes())
             .c(d!())
     }
 
