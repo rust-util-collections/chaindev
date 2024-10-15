@@ -375,18 +375,22 @@ where
                     remote_file,
                     host.addr.connection_addr()
                 );
-                path_map
-                    .entry(relative_path)
-                    .or_insert_with(Vec::new)
-                    .push(local_path.clone());
                 s.spawn(move || {
                     let remote = Remote::from(&host);
-                    remote.get_file(remote_path, &local_path).c(d!())
+                    remote
+                        .get_file(remote_path, &local_path)
+                        .c(d!())
+                        .map(|_| (relative_path, local_path))
                 })
             })
             .collect::<Vec<_>>()
             .into_iter()
             .flat_map(|h| h.join())
+            .map(|lp| {
+                lp.map(|(f, lp)| {
+                    path_map.entry(f).or_insert_with(Vec::new).push(lp);
+                })
+            })
             .filter(|t| t.is_err())
             .map(|e| e.unwrap_err())
             .collect::<Vec<_>>()
