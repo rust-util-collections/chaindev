@@ -11,6 +11,7 @@ use rand::random;
 use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fmt, fs,
@@ -288,6 +289,9 @@ where
     /// a gzip compressed tar package
     pub genesis_vkeys: Vec<u8>,
 
+    /// `$EL_PREMINE_ADDRS` of the EGG repo
+    pub premined_accounts: JsonValue,
+
     /// The first Fuhrer node
     /// will be treated as the genesis node
     #[serde(rename = "fuhrer_nodes")]
@@ -452,6 +456,7 @@ where
                 genesis_pre_settings: opts.genesis_pre_settings.clone(),
                 genesis,
                 genesis_vkeys,
+                premined_accounts: JsonValue::Null,
                 fuhrers: Default::default(),
                 nodes: Default::default(),
                 nodes_should_be_online: MapxOrd::new(),
@@ -1049,7 +1054,9 @@ where
             cmd::exec_output(&gitcmd).c(d!())?;
 
             if !self.meta.genesis_pre_settings.is_empty() {
-                fs::write(&cfg, self.meta.genesis_pre_settings.as_bytes()).c(d!())?;
+                fs::read(&self.meta.genesis_pre_settings)
+                    .c(d!())
+                    .and_then(|s| fs::write(&cfg, &s).c(d!()))?;
             }
 
             let cmd = format!(
@@ -1079,6 +1086,10 @@ where
                 fs::read(format!("{repo}/data/{NODE_HOME_GENESIS_DST}")).c(d!())?;
             self.meta.genesis_vkeys =
                 fs::read(format!("{repo}/data/{NODE_HOME_VCDATA_DST}")).c(d!())?;
+
+            let el_genesis_path = format!("{repo}/data/genesis/genesis.json");
+            self.meta.premined_accounts =
+                get_pre_mined_accounts_from_genesis_json(&el_genesis_path).c(d!())?;
         } else {
             if self.meta.genesis_vkeys.is_empty() {
                 return Err(eg!(
@@ -1090,8 +1101,11 @@ where
             // update the `block itv` to the value in the genesis
 
             let genesis = format!("{tmpdir}/{NODE_HOME_GENESIS_DST}");
+            let cmd = format!("tar -C {tmpdir} -xpf {genesis} && cp {tmpdir}/*/{{config.yaml,genesis.json}} /{tmpdir}/");
+
             let yml = format!("{tmpdir}/config.yaml");
-            let cmd = format!("tar -xpf {genesis} && cp {tmpdir}/*/config.yaml {yml}");
+            let genesis_json = format!("{tmpdir}/genesis.json");
+
             fs::write(&genesis, &self.meta.genesis)
                 .c(d!())
                 .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
@@ -1105,6 +1119,9 @@ where
                 ymlhdr["SECONDS_PER_ETH1_BLOCK"].as_u64().c(d!())?,
             ))
             .c(d!())?;
+
+            self.meta.premined_accounts =
+                get_pre_mined_accounts_from_genesis_json(&genesis_json).c(d!())?;
         }
 
         omit!(fs::remove_dir_all(&tmpdir));

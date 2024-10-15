@@ -2,6 +2,7 @@ pub(crate) use crate::common::*;
 use nix::unistd;
 use ruc::*;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::{env, fmt, fs, sync::LazyLock};
 
 ///////////////////////////////////////////////////////////////////////////
@@ -150,4 +151,37 @@ impl fmt::Display for NodeKind {
         };
         write!(f, "{}", msg)
     }
+}
+
+// Parse the contents of 'genesis.json'
+pub(crate) fn get_pre_mined_accounts_from_genesis_json(
+    el_genesis_path: &str,
+) -> Result<serde_json::Value> {
+    fs::read(el_genesis_path)
+        .c(d!())
+        .and_then(|g| serde_json::from_slice::<JsonValue>(&g).c(d!()))
+        .map(|g| {
+            g.as_object()
+                .unwrap()
+                .get("alloc")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .iter()
+                .filter(|account| {
+                    account
+                        .1
+                        .as_object()
+                        .unwrap()
+                        .get("balance")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .parse::<u128>()
+                        .unwrap()
+                        > 10_u128.pow(17)
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<JsonValue>()
+        })
 }
