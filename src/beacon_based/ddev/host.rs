@@ -121,6 +121,7 @@ pub struct HostMeta {
     pub ssh_user: String,
     #[serde(default)]
     pub ssh_port: u16,
+    #[serde(rename = "ssh_private_key_path")]
     #[serde(default)]
     pub ssh_sk_path: PathBuf,
 }
@@ -334,7 +335,7 @@ impl HostsJsonCfg {
     //       "ext_ip": "8.8.8.8",
     //       "local_ip": "10.0.0.2",
     //       "ssh_port": 2222,
-    //       "ssh_sk_path": "/home/fh/alice/.ssh/id_rsa",
+    //       "ssh_private_key_path": "/home/fh/alice/.ssh/id_rsa",
     //       "ssh_user": "alice",
     //       "weight": 8
     //     },
@@ -345,7 +346,7 @@ impl HostsJsonCfg {
     //     {
     //       "ext_ip": "8.8.4.4",
     //       "local_ip": "10.0.0.4",
-    //       "ssh_sk_path": "/home/jack/.ssh/id_ed25519",
+    //       "ssh_private_key_path": "/home/jack/.ssh/id_ed25519",
     //       "ssh_user": "jack"
     //     }
     //   ]
@@ -366,8 +367,8 @@ impl HostsJsonCfg {
             if 0 == hdr["ssh_port"].as_u64().unwrap() {
                 hdr.remove("ssh_port");
             }
-            if hdr["ssh_sk_path"].as_str().unwrap().is_empty() {
-                hdr.remove("ssh_sk_path");
+            if hdr["ssh_private_key_path"].as_str().unwrap().is_empty() {
+                hdr.remove("ssh_private_key_path");
             }
             if hdr["local_network_id"].as_str().unwrap().is_empty() {
                 hdr.remove("local_network_id");
