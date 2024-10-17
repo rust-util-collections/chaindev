@@ -185,25 +185,28 @@ pub fn put_file_to_hosts(
 ) -> Result<()> {
     let remote_path = remote_path.unwrap_or(local_path);
 
-    let errlist = thread::scope(|s| {
-        hosts
-            .as_ref()
-            .values()
-            .map(|h| {
-                s.spawn(move || {
-                    let remote = Remote::from(h);
-                    remote.put_file(local_path, remote_path).c(d!())
+    // Use chunks to avoid resource overload
+    for hosts in hosts.as_ref().values().collect::<Vec<_>>().chunks(12) {
+        let errlist = thread::scope(|s| {
+            hosts
+                .iter()
+                .map(|h| {
+                    s.spawn(move || {
+                        let remote = Remote::from(*h);
+                        remote.put_file(local_path, remote_path).c(d!())
+                    })
                 })
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .flat_map(|h| h.join())
-            .filter(|t| t.is_err())
-            .map(|e| e.unwrap_err())
-            .collect::<Vec<_>>()
-    });
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|h| h.join())
+                .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
+                .collect::<Vec<_>>()
+        });
 
-    check_errlist!(errlist)
+        check_errlist!(@errlist)
+    }
+    Ok(())
 }
 
 /// Get a remote file from some hosts
@@ -217,43 +220,46 @@ pub fn get_file_from_hosts(
     let remote_file = remote_path.file_name().c(d!())?.to_str().c(d!())?;
     let remote_path = &remote_path;
 
-    let mut local_paths = vec![];
+    // Use chunks to avoid resource overload
+    for hosts in hosts.as_ref().values().collect::<Vec<_>>().chunks(12) {
+        let mut local_paths = vec![];
 
-    let errlist = thread::scope(|s| {
-        hosts
-            .as_ref()
-            .values()
-            .map(|h| {
-                let local_path =
-                    format!("{}/{}_{}", local_base_dir, &h.meta.addr, remote_file);
-                s.spawn(move || {
-                    let remote = Remote::from(h);
-                    remote
-                        .get_file(remote_path, &local_path)
-                        .c(d!())
-                        .map(|_| (h.host_id(), local_path))
+        let errlist = thread::scope(|s| {
+            hosts
+                .iter()
+                .map(|h| {
+                    let local_path =
+                        format!("{}/{}_{}", local_base_dir, &h.meta.addr, remote_file);
+                    s.spawn(move || {
+                        let remote = Remote::from(*h);
+                        remote
+                            .get_file(remote_path, &local_path)
+                            .c(d!())
+                            .map(|_| (h.host_id(), local_path))
+                    })
                 })
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .flat_map(|h| h.join())
-            .map(|lp| {
-                lp.map(|lp| {
-                    local_paths.push(lp);
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|h| h.join())
+                .map(|lp| {
+                    lp.map(|lp| {
+                        local_paths.push(lp);
+                    })
                 })
-            })
-            .filter(|t| t.is_err())
-            .map(|e| e.unwrap_err())
-            .collect::<Vec<_>>()
-    });
+                .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
+                .collect::<Vec<_>>()
+        });
 
-    // Print good resp at first,
-    local_paths.sort_by(|a, b| a.0.cmp(&b.0));
-    local_paths.into_iter().for_each(|(h, p)| {
-        println!("HOST-[{h}] file are stored at:\n\t{p}");
-    });
+        // Print good resp at first,
+        local_paths.sort_by(|a, b| a.0.cmp(&b.0));
+        local_paths.into_iter().for_each(|(h, p)| {
+            println!("HOST-[{h}] file are stored at:\n\t{p}");
+        });
 
-    check_errlist!(errlist)
+        check_errlist!(@errlist)
+    }
+    Ok(())
 }
 
 /// Execute some commands or a script on some hosts
@@ -265,28 +271,31 @@ pub fn exec_cmds_on_hosts(
     static LK: Mutex<()> = Mutex::new(());
 
     if let Some(cmd) = cmd {
-        let errlist = thread::scope(|s| {
-            hosts
-                .as_ref()
-                .values()
-                .map(|h| {
-                    s.spawn(move || {
-                        let remote = Remote::from(h);
-                        remote.exec_cmd(cmd).c(d!(&h.meta.addr)).map(|outputs| {
-                            let lk = LK.lock();
-                            println!("== HOST: {} ==\n{}", &h.meta.addr, outputs);
-                            drop(lk);
+        // Use chunks to avoid resource overload
+        for hosts in hosts.as_ref().values().collect::<Vec<_>>().chunks(24) {
+            let errlist = thread::scope(|s| {
+                hosts
+                    .iter()
+                    .map(|h| {
+                        s.spawn(move || {
+                            let remote = Remote::from(*h);
+                            remote.exec_cmd(cmd).c(d!(&h.meta.addr)).map(|outputs| {
+                                let lk = LK.lock();
+                                println!("== HOST: {} ==\n{}", &h.meta.addr, outputs);
+                                drop(lk);
+                            })
                         })
                     })
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
-        });
-        check_errlist!(errlist)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
+                    .collect::<Vec<_>>()
+            });
+            check_errlist!(@errlist)
+        }
+        Ok(())
     } else if let Some(sp) = script_path {
         let tmp_script_path = format!("/tmp/._{}", rand::random::<u64>());
         let cmd = format!("bash {}", tmp_script_path);
@@ -295,41 +304,44 @@ pub fn exec_cmds_on_hosts(
         let script =
             format!("{} && rm -f {}", script.trim_end(), tmp_script_path).into_bytes();
 
-        let errlist = thread::scope(|s| {
-            hosts
-                .as_ref()
-                .values()
-                .map(|h| {
-                    let remote = Remote::from(h);
-                    let cmd = &cmd;
-                    let script = &script;
-                    let tmp_script_path = &tmp_script_path;
-                    s.spawn(move || {
-                        remote
-                            .replace_file(tmp_script_path, script)
-                            .c(d!())
-                            .and_then(|_| {
-                                info!(remote.exec_cmd(cmd), &h.meta.addr).map(
-                                    |outputs| {
-                                        let lk = LK.lock();
-                                        println!(
-                                            "== HOST: {} ==\n{}",
-                                            &h.meta.addr, outputs
-                                        );
-                                        drop(lk);
-                                    },
-                                )
-                            })
+        // Use chunks to avoid resource overload
+        for hosts in hosts.as_ref().values().collect::<Vec<_>>().chunks(12) {
+            let errlist = thread::scope(|s| {
+                hosts
+                    .iter()
+                    .map(|h| {
+                        let remote = Remote::from(*h);
+                        let cmd = &cmd;
+                        let script = &script;
+                        let tmp_script_path = &tmp_script_path;
+                        s.spawn(move || {
+                            remote
+                                .replace_file(tmp_script_path, script)
+                                .c(d!())
+                                .and_then(|_| {
+                                    info!(remote.exec_cmd(cmd), &h.meta.addr).map(
+                                        |outputs| {
+                                            let lk = LK.lock();
+                                            println!(
+                                                "== HOST: {} ==\n{}",
+                                                &h.meta.addr, outputs
+                                            );
+                                            drop(lk);
+                                        },
+                                    )
+                                })
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
-        });
-        check_errlist!(errlist)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
+                    .collect::<Vec<_>>()
+            });
+            check_errlist!(@errlist)
+        }
+        Ok(())
     } else {
         Err(eg!("neither `cmd` nor `script_path` has value!"))
     }
@@ -345,64 +357,73 @@ where
     P: NodePorts,
     S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
-    let mut path_map = BTreeMap::new();
-
     let local_base_dir = local_base_dir.unwrap_or("/tmp");
 
-    let errlist = thread::scope(|s| {
-        env.meta
-            .fuhrers
-            .values()
-            .chain(env.meta.nodes.values())
-            .flat_map(|n| {
-                files.iter().map(|f| {
-                    (
-                        n.host.clone(),
-                        *f,
-                        format!("{}/{}", &n.home, f),
-                        format!("N{}_{}_{}", n.id, n.kind, f.replace('/', "_")),
-                    )
-                })
-            })
-            .map(|(host, relative_path, remote_path, remote_file)| {
-                let local_path = format!(
-                    "{}/{}.{{{}}}",
-                    local_base_dir,
-                    remote_file,
-                    host.addr.connection_addr()
-                );
-                s.spawn(move || {
-                    let remote = Remote::from(&host);
-                    remote
-                        .get_file(remote_path, &local_path)
-                        .c(d!())
-                        .map(|_| (relative_path, local_path))
-                })
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .flat_map(|h| h.join())
-            .map(|lp| {
-                lp.map(|(f, lp)| {
-                    path_map.entry(f).or_insert_with(Vec::new).push(lp);
-                })
-            })
-            .filter(|t| t.is_err())
-            .map(|e| e.unwrap_err())
-            .collect::<Vec<_>>()
-    });
+    // Use chunks to avoid resource overload
+    for nodes in env
+        .meta
+        .fuhrers
+        .values()
+        .chain(env.meta.nodes.values())
+        .collect::<Vec<_>>()
+        .chunks(12)
+    {
+        let mut path_map = BTreeMap::new();
 
-    // Print good resp at first,
-    path_map.into_iter().for_each(|(f, mut paths)| {
-        println!("Files of the '{}' are stored at:", f);
-        paths.sort();
-        paths.iter().for_each(|p| {
-            println!("\t- {}", p);
+        let errlist = thread::scope(|s| {
+            nodes
+                .iter()
+                .flat_map(|n| {
+                    files.iter().map(|f| {
+                        (
+                            n.host.clone(),
+                            *f,
+                            format!("{}/{}", &n.home, f),
+                            format!("N{}_{}_{}", n.id, n.kind, f.replace('/', "_")),
+                        )
+                    })
+                })
+                .map(|(host, relative_path, remote_path, remote_file)| {
+                    let local_path = format!(
+                        "{}/{}.{{{}}}",
+                        local_base_dir,
+                        remote_file,
+                        host.addr.connection_addr()
+                    );
+                    s.spawn(move || {
+                        let remote = Remote::from(&host);
+                        remote
+                            .get_file(remote_path, &local_path)
+                            .c(d!())
+                            .map(|_| (relative_path, local_path))
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|h| h.join())
+                .map(|lp| {
+                    lp.map(|(f, lp)| {
+                        path_map.entry(f).or_insert_with(Vec::new).push(lp);
+                    })
+                })
+                .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
+                .collect::<Vec<_>>()
         });
-    });
 
-    // Then pop err msg
-    check_errlist!(errlist)
+        // Print good resp at first,
+        path_map.into_iter().for_each(|(f, mut paths)| {
+            println!("Files of the '{}' are stored at:", f);
+            paths.sort();
+            paths.iter().for_each(|p| {
+                println!("\t- {}", p);
+            });
+        });
+
+        // Then pop err msg
+        check_errlist!(@errlist)
+    }
+    Ok(())
 }
 
 pub fn collect_tgz_from_nodes<'a, C, P, S>(
@@ -415,65 +436,79 @@ where
     P: NodePorts,
     S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
-    let mut path_map = BTreeMap::new();
-
     let local_base_dir = local_base_dir.unwrap_or("/tmp");
 
-    let errlist = thread::scope(|s| {
-        env.meta
-            .fuhrers
-            .values()
-            .chain(env.meta.nodes.values())
-            .flat_map(|n| {
-                paths.iter().map(|path| {
-                    (
-                        n.host.clone(),
-                        *path,
-                        format!("{}/{}", &n.home, path),
-                        format!("N{}_{}_{}.tgz", n.id, n.kind, path.replace('/', "_")),
-                    )
-                })
-            })
-            .map(|(host, relative_path, remote_path, tgz_name)| {
-                let tgzcmd =
-                    format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
-                let remote_tgz_path = format!("/tmp/{}", tgz_name);
-                let local_path = format!(
-                    "{}/{}.{{{}}}",
-                    local_base_dir,
-                    &tgz_name,
-                    host.addr.connection_addr()
-                );
-                path_map
-                    .entry(relative_path)
-                    .or_insert_with(Vec::new)
-                    .push(local_path.clone());
-                s.spawn(move || {
-                    let remote = Remote::from(&host);
-                    remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
-                        remote.get_file(remote_tgz_path, &local_path).c(d!())
+    // Use chunks to avoid resource overload
+    for nodes in env
+        .meta
+        .fuhrers
+        .values()
+        .chain(env.meta.nodes.values())
+        .collect::<Vec<_>>()
+        .chunks(12)
+    {
+        let mut path_map = BTreeMap::new();
+
+        let errlist = thread::scope(|s| {
+            nodes
+                .iter()
+                .flat_map(|n| {
+                    paths.iter().map(|path| {
+                        (
+                            n.host.clone(),
+                            *path,
+                            format!("{}/{}", &n.home, path),
+                            format!(
+                                "N{}_{}_{}.tgz",
+                                n.id,
+                                n.kind,
+                                path.replace('/', "_")
+                            ),
+                        )
                     })
                 })
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .flat_map(|h| h.join())
-            .filter(|t| t.is_err())
-            .map(|e| e.unwrap_err())
-            .collect::<Vec<_>>()
-    });
-
-    // Print good resp at first,
-    path_map.into_iter().for_each(|(f, mut paths)| {
-        println!("Files of the '{}' are stored at:", f);
-        paths.sort();
-        paths.iter().for_each(|p| {
-            println!("\t- {}", p);
+                .map(|(host, relative_path, remote_path, tgz_name)| {
+                    let tgzcmd =
+                        format!("cd /tmp && tar -zcf {} {}", &tgz_name, &remote_path);
+                    let remote_tgz_path = format!("/tmp/{}", tgz_name);
+                    let local_path = format!(
+                        "{}/{}.{{{}}}",
+                        local_base_dir,
+                        &tgz_name,
+                        host.addr.connection_addr()
+                    );
+                    path_map
+                        .entry(relative_path)
+                        .or_insert_with(Vec::new)
+                        .push(local_path.clone());
+                    s.spawn(move || {
+                        let remote = Remote::from(&host);
+                        remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
+                            remote.get_file(remote_tgz_path, &local_path).c(d!())
+                        })
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|h| h.join())
+                .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
+                .collect::<Vec<_>>()
         });
-    });
 
-    // Then pop err msg
-    check_errlist!(errlist)
+        // Print good resp at first,
+        path_map.into_iter().for_each(|(f, mut paths)| {
+            println!("Files of the '{}' are stored at:", f);
+            paths.sort();
+            paths.iter().for_each(|p| {
+                println!("\t- {}", p);
+            });
+        });
+
+        // Then pop err msg
+        check_errlist!(@errlist)
+    }
+    Ok(())
 }
 
 pub(super) fn generate_name_from_path(path: &str) -> String {

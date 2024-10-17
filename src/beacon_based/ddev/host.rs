@@ -219,29 +219,36 @@ impl Hosts {
             }
         }
 
-        let hosts = cfg.hosts;
+        let mut hosts = cfg.hosts;
 
         let hosts = if hosts.iter().any(|h| 0 == h.weight) {
-            thread::scope(|s| {
-                hosts
-                    .into_iter()
-                    .map(|mut h| {
-                        h.node_cnt = 0;
-                        s.spawn(|| {
-                            if 0 == h.weight {
-                                h.weight =
-                                    Remote::from(&h.meta).get_hosts_weight().c(d!())?;
-                            }
-                            Ok(h)
+            // Use chunks to avoid resource overload
+            for hosts in hosts.chunks_mut(24) {
+                thread::scope(|s| {
+                    hosts
+                        .iter_mut()
+                        .map(|h| {
+                            h.node_cnt = 0;
+                            s.spawn(|| {
+                                if 0 == h.weight {
+                                    h.weight = Remote::from(&h.meta)
+                                        .get_hosts_weight()
+                                        .c(d!())?;
+                                }
+                                Ok(h)
+                            })
                         })
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .flat_map(|h| h.join())
-                    .map(|h| h.map(|h| (h.meta.addr.host_id(), h)))
-                    .collect::<Result<BTreeMap<_, _>>>()
-            })
-            .c(d!())?
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .flat_map(|h| h.join())
+                        .collect::<Result<Vec<_>>>()
+                })
+                .c(d!())?;
+            }
+            hosts
+                .into_iter()
+                .map(|h| (h.meta.addr.host_id(), h))
+                .collect()
         } else {
             hosts
                 .into_iter()
@@ -503,24 +510,27 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
         .c(d!())?;
 
     if hosts.iter().any(|h| 0 == h.weight) {
-        hosts = thread::scope(|s| {
-            hosts
-                .into_iter()
-                .map(|mut h| {
-                    s.spawn(|| {
-                        if 0 == h.weight {
-                            h.weight =
-                                Remote::from(&h.meta).get_hosts_weight().c(d!())?;
-                        }
-                        Ok(h)
+        // Use chunks to avoid resource overload
+        for hosts in hosts.chunks_mut(24) {
+            thread::scope(|s| {
+                hosts
+                    .iter_mut()
+                    .map(|h| {
+                        s.spawn(|| {
+                            if 0 == h.weight {
+                                h.weight =
+                                    Remote::from(&h.meta).get_hosts_weight().c(d!())?;
+                            }
+                            Ok(h)
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flat_map(|h| h.join())
-                .collect::<Result<Vec<_>>>()
-        })
-        .c(d!())?;
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .collect::<Result<Vec<_>>>()
+            })
+            .c(d!())?;
+        }
     }
 
     let ret = hosts

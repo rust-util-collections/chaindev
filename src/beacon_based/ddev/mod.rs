@@ -467,29 +467,38 @@ where
             node_cmdline_generator: s,
         };
 
-        fs::create_dir_all(&env.meta.home).c(d!()).and_then(|_| {
-            let hdrs = env
-                .meta
-                .hosts
-                .as_ref()
-                .values()
-                .map(|h| {
-                    let h = h.clone();
-                    let cmd = format!("mkdir -p {}", &env.meta.home);
-                    thread::spawn(move || {
-                        let remote = Remote::from(&h);
-                        info!(remote.exec_cmd(&cmd), &h.meta.addr)
+        fs::create_dir_all(&env.meta.home).c(d!())?;
+
+        // Use chunks to avoid resource overload
+        for hosts in env
+            .meta
+            .hosts
+            .as_ref()
+            .values()
+            .collect::<Vec<_>>()
+            .chunks(24)
+        {
+            let errlist = thread::scope(|s| {
+                let hdrs = hosts
+                    .iter()
+                    .map(|h| {
+                        let cmd = format!("mkdir -p {}", &env.meta.home);
+                        s.spawn(move || {
+                            let remote = Remote::from(*h);
+                            info!(remote.exec_cmd(&cmd), &h.meta.addr)
+                        })
                     })
-                })
-                .collect::<Vec<_>>();
-            let errlist = hdrs
-                .into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>();
-            check_errlist!(errlist)
-        })?;
+                    .collect::<Vec<_>>();
+
+                hdrs.into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
+                    .collect::<Vec<_>>()
+            });
+
+            check_errlist!(@errlist)
+        }
 
         macro_rules! add_initial_nodes {
             ($kind: expr) => {{
@@ -527,45 +536,61 @@ where
         info_omit!(self.stop(None, true));
         sleep_ms!(100);
 
-        let errlist = thread::scope(|s| {
-            let hdrs = self
-                .meta
-                .fuhrers
-                .values()
-                .chain(self.meta.nodes.values())
-                .map(|n| s.spawn(|| n.clean_up().c(d!())))
-                .collect::<Vec<_>>();
-            hdrs.into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
-        });
+        // Use chunks to avoid resource overload
+        for nodes in self
+            .meta
+            .fuhrers
+            .values()
+            .chain(self.meta.nodes.values())
+            .collect::<Vec<_>>()
+            .chunks(24)
+        {
+            let errlist = thread::scope(|s| {
+                let hdrs = nodes
+                    .iter()
+                    .map(|n| s.spawn(|| n.clean_up().c(d!())))
+                    .collect::<Vec<_>>();
+                hdrs.into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
+                    .collect::<Vec<_>>()
+            });
 
-        check_errlist!(@errlist);
+            check_errlist!(@errlist);
+        }
 
         fs::remove_dir_all(&self.meta.home).c(d!())?;
 
-        let errlist = thread::scope(|s| {
-            let hdrs = self
-                .meta
-                .hosts
-                .as_ref()
-                .values()
-                .map(|h| {
-                    let remote = Remote::from(h);
-                    let cmd = format!("rm -rf {}", &self.meta.home);
-                    s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
-                })
-                .collect::<Vec<_>>();
-            hdrs.into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
-        });
+        // Use chunks to avoid resource overload
+        for hosts in self
+            .meta
+            .hosts
+            .as_ref()
+            .values()
+            .collect::<Vec<_>>()
+            .chunks(24)
+        {
+            let errlist = thread::scope(|s| {
+                let hdrs = hosts
+                    .iter()
+                    .map(|h| {
+                        let remote = Remote::from(*h);
+                        let cmd = format!("rm -rf {}", &self.meta.home);
+                        s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
+                    })
+                    .collect::<Vec<_>>();
+                hdrs.into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
+                    .collect::<Vec<_>>()
+            });
 
-        check_errlist!(errlist)
+            check_errlist!(@errlist)
+        }
+
+        Ok(())
     }
 
     // Destroy all existing ENVs
@@ -804,28 +829,33 @@ where
 
         self.update_online_status(&ids, &[]);
 
-        let errlist = thread::scope(|s| {
-            let mut hdrs = vec![];
-            for i in ids.iter() {
-                let hdr = s.spawn(|| {
-                    if let Some(n) =
-                        self.meta.fuhrers.get(i).or_else(|| self.meta.nodes.get(i))
-                    {
-                        n.start(self).c(d!())
-                    } else {
-                        Err(eg!("not exist"))
-                    }
-                });
-                hdrs.push(hdr);
-            }
-            hdrs.into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
-        });
+        // Use chunks to avoid resource overload
+        for ids in ids.chunks(12) {
+            let errlist = thread::scope(|s| {
+                let mut hdrs = vec![];
+                for i in ids.iter() {
+                    let hdr = s.spawn(|| {
+                        if let Some(n) =
+                            self.meta.fuhrers.get(i).or_else(|| self.meta.nodes.get(i))
+                        {
+                            n.start(self).c(d!())
+                        } else {
+                            Err(eg!("not exist"))
+                        }
+                    });
+                    hdrs.push(hdr);
+                }
+                hdrs.into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
+                    .collect::<Vec<_>>()
+            });
 
-        check_errlist!(errlist)
+            check_errlist!(@errlist)
+        }
+
+        Ok(())
     }
 
     // Start all existing ENVs
@@ -859,22 +889,31 @@ where
         } else {
             // Need NOT to call the `update_online_status`
             // for an entire stopped ENV, meaningless
-            let errlist = thread::scope(|s| {
-                let hdrs = self
-                    .meta
-                    .fuhrers
-                    .values()
-                    .chain(self.meta.nodes.values())
-                    .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
-                    .collect::<Vec<_>>();
-                hdrs.into_iter()
-                    .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .map(|e| e.unwrap_err())
-                    .collect::<Vec<_>>()
-            });
 
-            check_errlist!(errlist)
+            // Use chunks to avoid resource overload
+            for nodes in self
+                .meta
+                .fuhrers
+                .values()
+                .chain(self.meta.nodes.values())
+                .collect::<Vec<_>>()
+                .chunks(24)
+            {
+                let errlist = thread::scope(|s| {
+                    let hdrs = nodes
+                        .iter()
+                        .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
+                        .collect::<Vec<_>>();
+                    hdrs.into_iter()
+                        .flat_map(|h| h.join())
+                        .filter(|t| t.is_err())
+                        .map(|e| e.unwrap_err())
+                        .collect::<Vec<_>>()
+                });
+
+                check_errlist!(@errlist)
+            }
+            Ok(())
         }
     }
 
@@ -1151,30 +1190,37 @@ where
 
         let genesis_node_id = *self.meta.fuhrers.first_key_value().c(d!())?.0;
 
-        let errlist = thread::scope(|s| {
-            let mut hdrs = vec![];
-            for n in nodes.iter() {
-                let hdr = s.spawn(|| -> Result<()> {
-                    let remote = Remote::from(&n.host);
-                    let mut p = format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
-                    remote.replace_file(&p, &self.meta.genesis).c(d!())?;
-                    if n.id == genesis_node_id {
-                        p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
-                        remote.replace_file(&p, &self.meta.genesis_vkeys).c(d!())?;
-                    }
-                    Ok(())
-                });
-                hdrs.push(hdr);
-            }
+        // Use chunks to avoid resource overload
+        for nodes in nodes.chunks(12) {
+            let errlist = thread::scope(|s| {
+                let mut hdrs = vec![];
+                for n in nodes.iter() {
+                    let hdr = s.spawn(|| -> Result<()> {
+                        let remote = Remote::from(&n.host);
+                        let mut p =
+                            format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
+                        remote.replace_file(&p, &self.meta.genesis).c(d!())?;
+                        if n.id == genesis_node_id {
+                            p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
+                            remote
+                                .replace_file(&p, &self.meta.genesis_vkeys)
+                                .c(d!())?;
+                        }
+                        Ok(())
+                    });
+                    hdrs.push(hdr);
+                }
 
-            hdrs.into_iter()
-                .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
-        });
+                hdrs.into_iter()
+                    .flat_map(|h| h.join())
+                    .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
+                    .collect::<Vec<_>>()
+            });
 
-        check_errlist!(errlist)
+            check_errlist!(@errlist)
+        }
+        Ok(())
     }
 
     fn load_env_by_cfg<U>(cfg: &EnvCfg<C, P, U>) -> Result<Env<C, P, S>>
