@@ -98,11 +98,11 @@ pub struct Host {
 
     // The weight used when allocating nodes
     #[serde(default)]
-    pub(super) weight: Weight,
+    pub weight: Weight,
 
     // How many nodes have been created
     #[serde(default)]
-    pub(super) node_cnt: u64,
+    pub node_cnt: u64,
 }
 
 impl Host {
@@ -122,7 +122,7 @@ pub struct HostMeta {
     #[serde(default)]
     pub ssh_port: u16,
     #[serde(default)]
-    pub(super) ssh_local_seckeys: Vec<PathBuf>,
+    pub ssh_sk_path: PathBuf,
 }
 
 impl HostMeta {
@@ -144,29 +144,31 @@ fn default_ssh_port() -> u16 {
     22
 }
 
-fn default_ssh_seckeys() -> Vec<PathBuf> {
-    static SSH_SECKEYS: LazyLock<Vec<PathBuf>> = LazyLock::new(|| {
+fn default_ssh_sk_path() -> Option<PathBuf> {
+    static SSH_SECKEYS: LazyLock<PathBuf> = LazyLock::new(|| {
         let home = env::var("HOME").expect("$HOME not defined!");
 
         let ed25519_key_path = PathBuf::from(format!("{}/.ssh/id_ed25519", &home));
         let rsa_key_path = PathBuf::from(home + "{}/.ssh/id_rsa");
 
-        let mut ret = vec![];
-
         if ed25519_key_path.exists() {
-            ret.push(ed25519_key_path);
+            ed25519_key_path
         } else if rsa_key_path.exists() {
-            ret.push(rsa_key_path);
-        };
-
-        ret
+            rsa_key_path
+        } else {
+            PathBuf::new()
+        }
     });
 
-    (*SSH_SECKEYS).clone()
+    if (*SSH_SECKEYS).as_os_str().is_empty() {
+        None
+    } else {
+        Some((*SSH_SECKEYS).clone())
+    }
 }
 
 // #[derive(Debug, Clone)]
-// pub(super) enum HostOS {
+// pub enum HostOS {
 //     Linux,
 //     MacOS,
 //     FreeBSD,
@@ -207,11 +209,11 @@ impl Hosts {
                     h.meta.ssh_port = default_ssh_port();
                 }
             }
-            if h.meta.ssh_local_seckeys.is_empty() {
-                if let Some(keys) = cfg.fallback_ssh_local_seckeys.as_ref() {
-                    h.meta.ssh_local_seckeys = keys.clone();
+            if h.meta.ssh_sk_path.as_os_str().is_empty() {
+                if let Some(key) = cfg.fallback_ssh_sk_path.as_ref() {
+                    h.meta.ssh_sk_path = key.clone();
                 } else {
-                    h.meta.ssh_local_seckeys = default_ssh_seckeys();
+                    h.meta.ssh_sk_path = default_ssh_sk_path().c(d!())?;
                 }
             }
         }
@@ -259,7 +261,7 @@ struct HostsJsonCfg {
     fallback_weight: Option<WeightGuard>,
     fallback_ssh_user: Option<String>,
     fallback_ssh_port: Option<u16>,
-    fallback_ssh_local_seckeys: Option<Vec<PathBuf>>,
+    fallback_ssh_sk_path: Option<PathBuf>,
 }
 
 impl HostsJsonCfg {
@@ -275,10 +277,7 @@ impl HostsJsonCfg {
                     },
                     ssh_user: "alice".to_owned(),
                     ssh_port: 2222,
-                    ssh_local_seckeys: vec![PathBuf::from_str(
-                        "/home/fh/alice/.ssh/id_rsa",
-                    )
-                    .unwrap()],
+                    ssh_sk_path: PathBuf::from("/home/fh/alice/.ssh/id_rsa"),
                 },
                 weight: 8,
                 node_cnt: 0,
@@ -292,7 +291,7 @@ impl HostsJsonCfg {
                     },
                     ssh_user: String::new(),
                     ssh_port: u16::default(),
-                    ssh_local_seckeys: vec![],
+                    ssh_sk_path: PathBuf::new(),
                 },
                 weight: 4,
                 node_cnt: 0,
@@ -306,10 +305,7 @@ impl HostsJsonCfg {
                     },
                     ssh_user: "jack".to_owned(),
                     ssh_port: 0,
-                    ssh_local_seckeys: vec![
-                        PathBuf::from_str("/home/jack/.ssh/id_rsa").unwrap(),
-                        PathBuf::from_str("/home/jack/.ssh/id_ed25519").unwrap(),
-                    ],
+                    ssh_sk_path: PathBuf::from("/home/jack/.ssh/id_ed25519"),
                 },
                 weight: 0,
                 node_cnt: 0,
@@ -321,10 +317,7 @@ impl HostsJsonCfg {
             fallback_weight: Some(32),
             fallback_ssh_user: Some("bob".to_owned()),
             fallback_ssh_port: Some(22),
-            fallback_ssh_local_seckeys: Some(vec![PathBuf::from_str(
-                "/home/bob/.ssh/id_ed25519",
-            )
-            .unwrap()]),
+            fallback_ssh_sk_path: Some(PathBuf::from("/home/bob/.ssh/id_ed25519")),
         }
     }
 
@@ -332,20 +325,16 @@ impl HostsJsonCfg {
     //
     // ```json
     // {
-    //   "fallback_ssh_local_seckeys": [
-    //     "/home/bob/.ssh/id_ed25519"
-    //   ],
     //   "fallback_ssh_port": 22,
+    //   "fallback_ssh_sk_path": "/home/bob/.ssh/id_ed25519",
     //   "fallback_ssh_user": "bob",
     //   "fallback_weight": 32,
     //   "hosts": [
     //     {
     //       "ext_ip": "8.8.8.8",
     //       "local_ip": "10.0.0.2",
-    //       "ssh_local_seckeys": [
-    //         "/home/fh/alice/.ssh/id_rsa"
-    //       ],
     //       "ssh_port": 2222,
+    //       "ssh_sk_path": "/home/fh/alice/.ssh/id_rsa",
     //       "ssh_user": "alice",
     //       "weight": 8
     //     },
@@ -356,10 +345,7 @@ impl HostsJsonCfg {
     //     {
     //       "ext_ip": "8.8.4.4",
     //       "local_ip": "10.0.0.4",
-    //       "ssh_local_seckeys": [
-    //         "/home/jack/.ssh/id_rsa",
-    //         "/home/jack/.ssh/id_ed25519"
-    //       ],
+    //       "ssh_sk_path": "/home/jack/.ssh/id_ed25519",
     //       "ssh_user": "jack"
     //     }
     //   ]
@@ -380,8 +366,8 @@ impl HostsJsonCfg {
             if 0 == hdr["ssh_port"].as_u64().unwrap() {
                 hdr.remove("ssh_port");
             }
-            if hdr["ssh_local_seckeys"].as_array().unwrap().is_empty() {
-                hdr.remove("ssh_local_seckeys");
+            if hdr["ssh_sk_path"].as_str().unwrap().is_empty() {
+                hdr.remove("ssh_sk_path");
             }
             if hdr["local_network_id"].as_str().unwrap().is_empty() {
                 hdr.remove("local_network_id");
@@ -450,6 +436,9 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
         return Err(eg!("invalid length"));
     }
 
+    // fix me !!
+    let default_ssh_sk_path = default_ssh_sk_path().c(d!())?;
+
     let mut hosts = hosts
         .into_iter()
         .map(|h| {
@@ -459,7 +448,7 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
                         addr,
                         ssh_user: default_ssh_user(),
                         ssh_port: default_ssh_port(),
-                        ssh_local_seckeys: default_ssh_seckeys(),
+                        ssh_sk_path: default_ssh_sk_path.clone(),
                     },
                     weight: 0,
                     node_cnt: 0,
@@ -470,7 +459,7 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
                         addr,
                         ssh_user: h[1].to_owned(),
                         ssh_port: default_ssh_port(),
-                        ssh_local_seckeys: default_ssh_seckeys(),
+                        ssh_sk_path: default_ssh_sk_path.clone(),
                     },
                     weight: 0,
                     node_cnt: 0,
@@ -482,7 +471,7 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
                             addr,
                             ssh_user: h[1].to_owned(),
                             ssh_port: p,
-                            ssh_local_seckeys: default_ssh_seckeys(),
+                            ssh_sk_path: default_ssh_sk_path.clone(),
                         },
                         weight: 0,
                         node_cnt: 0,
@@ -496,10 +485,10 @@ pub fn param_parse_hosts(hosts: HostExpressionRef) -> Result<HostMap> {
                                 addr,
                                 ssh_user: h[1].to_owned(),
                                 ssh_port: p,
-                                ssh_local_seckeys: alt!(
+                                ssh_sk_path: alt!(
                                     5 == h.len(),
-                                    vec![PathBuf::from(h[4])],
-                                    default_ssh_seckeys()
+                                    PathBuf::from(h[4]),
+                                    default_ssh_sk_path.clone()
                                 ),
                             },
                             weight: w as Weight,

@@ -24,11 +24,7 @@ impl<'a> From<&'a HostMeta> for Remote<'a> {
                 addr: h.addr.connection_addr(),
                 user: &h.ssh_user,
                 port: h.ssh_port,
-                local_seckeys: h
-                    .ssh_local_seckeys
-                    .iter()
-                    .map(|p| p.as_path())
-                    .collect(),
+                local_sk: h.ssh_sk_path.as_path(),
             },
         }
     }
@@ -138,7 +134,7 @@ impl<'a> Remote<'a> {
         .collect::<Result<BTreeSet<u16>>>()
     }
 
-    pub(super) fn get_hosts_weight(&self) -> Result<u64> {
+    pub fn get_hosts_weight(&self) -> Result<u64> {
         let cpunum = self
             .exec_cmd(
             r#"if [[ "Linux" = `uname -s` ]]; then grep -c processor /proc/cpuinfo; elif [[ "Darwin" = `uname -s` ]]; then sysctl -a | grep 'machdep.cpu.core_count' | grep -o '[0-9]\+$'; else exit 1; fi"#,
@@ -160,7 +156,7 @@ impl<'a> Remote<'a> {
         Ok(cpunum)
     }
 
-    // pub(super) fn hosts_os(&self) -> Result<HostOS> {
+    // pub fn hosts_os(&self) -> Result<HostOS> {
     //     let os = self.exec_cmd("uname -s").c(d!())?;
     //     let os = match os.trim() {
     //         "Linux" => HostOS::Linux,

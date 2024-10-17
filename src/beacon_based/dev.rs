@@ -221,8 +221,8 @@ where
     /// such as the info about execution client(reth or geth)
     pub custom_data: Data,
 
-    /// Node ID allocator
-    pub(crate) next_node_id: NodeID,
+    // Node ID allocator
+    next_node_id: NodeID,
 }
 
 impl<Data, Ports> EnvMeta<Data, Node<Ports>>
