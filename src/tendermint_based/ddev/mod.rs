@@ -1304,7 +1304,11 @@ where
             while reserved.len() > res.len() {
                 let p = 20000 + random::<u16>() % (65535 - 20000);
                 let hp = format!("{},{}", &host.addr, p);
-                if !reserved.contains(&hp) && !PC.contains(&hp) && port_is_free(&p) {
+                if !res.contains(&p)
+                    && !reserved_ports.contains(&p)
+                    && !PC.contains(&hp)
+                    && port_is_free(&p)
+                {
                     res.push(p);
                 }
                 cnter -= 1;
