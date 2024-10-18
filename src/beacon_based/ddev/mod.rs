@@ -7,6 +7,7 @@ pub mod remote;
 
 use crate::check_errlist;
 use host::HostMeta;
+use parking_lot::RwLock;
 use rand::random;
 use remote::Remote;
 use ruc::{cmd, *};
@@ -391,29 +392,39 @@ where
                 env.destroy(true).c(d!())?;
             }
 
-            omit!(fs::remove_dir_all(&home).c(d!()).and_then(|_| {
-                let hdrs = opts
-                    .hosts
-                    .as_ref()
-                    .values()
-                    .map(|h| {
-                        let h = h.clone();
-                        let cmd = format!("rm -rf {}", &home);
-                        thread::spawn(move || {
-                            let remote = Remote::from(&h);
-                            info!(remote.exec_cmd(&cmd), &h.meta.addr)
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                let errlist = hdrs
-                    .into_iter()
-                    .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .map(|e| e.unwrap_err())
-                    .collect::<Vec<_>>();
+            fs::remove_dir_all(&home).c(d!())?;
+
+            let force_clean_up = || -> Result<()> {
+                let mut errlist = vec![];
+
+                // Use chunks to avoid resource overload
+                for hosts in opts.hosts.as_ref().values().collect::<Vec<_>>().chunks(24)
+                {
+                    thread::scope(|s| {
+                        let hdrs = hosts
+                            .iter()
+                            .map(|h| {
+                                let cmd = format!("rm -rf {}", &home);
+                                s.spawn(move || {
+                                    let remote = Remote::from(*h);
+                                    info!(remote.exec_cmd(&cmd), &h.meta.addr)
+                                })
+                            })
+                            .collect::<Vec<_>>();
+
+                        hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
+                            if let Err(e) = t {
+                                errlist.push(e);
+                            }
+                        });
+                    });
+                }
+
                 check_errlist!(errlist)
-            }));
-        }
+            };
+
+            omit!(force_clean_up());
+        };
 
         let remote_exists = || {
             let hdrs = opts
@@ -536,6 +547,8 @@ where
         info_omit!(self.stop(None, true));
         sleep_ms!(100);
 
+        let mut errlist = vec![];
+
         // Use chunks to avoid resource overload
         for nodes in self
             .meta
@@ -545,22 +558,26 @@ where
             .collect::<Vec<_>>()
             .chunks(24)
         {
-            let errlist = thread::scope(|s| {
+            thread::scope(|s| {
                 let hdrs = nodes
                     .iter()
                     .map(|n| s.spawn(|| n.clean_up().c(d!())))
                     .collect::<Vec<_>>();
-                hdrs.into_iter()
-                    .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .map(|e| e.unwrap_err())
-                    .collect::<Vec<_>>()
-            });
 
-            check_errlist!(@errlist);
+                hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
+                    if let Err(e) = t {
+                        errlist.push(e);
+                    }
+                });
+            });
         }
 
+        check_errlist!(@errlist);
+
         fs::remove_dir_all(&self.meta.home).c(d!())?;
+
+        // Need not do this, for code-readable only.
+        errlist.clear();
 
         // Use chunks to avoid resource overload
         for hosts in self
@@ -571,7 +588,7 @@ where
             .collect::<Vec<_>>()
             .chunks(24)
         {
-            let errlist = thread::scope(|s| {
+            thread::scope(|s| {
                 let hdrs = hosts
                     .iter()
                     .map(|h| {
@@ -580,17 +597,16 @@ where
                         s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
                     })
                     .collect::<Vec<_>>();
-                hdrs.into_iter()
-                    .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .map(|e| e.unwrap_err())
-                    .collect::<Vec<_>>()
-            });
 
-            check_errlist!(@errlist)
+                hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
+                    if let Err(e) = t {
+                        errlist.push(e);
+                    }
+                });
+            });
         }
 
-        Ok(())
+        check_errlist!(errlist)
     }
 
     // Destroy all existing ENVs
@@ -845,6 +861,7 @@ where
                     });
                     hdrs.push(hdr);
                 }
+
                 hdrs.into_iter()
                     .flat_map(|h| h.join())
                     .filter(|t| t.is_err())
@@ -890,6 +907,8 @@ where
             // Need NOT to call the `update_online_status`
             // for an entire stopped ENV, meaningless
 
+            let mut errlist = vec![];
+
             // Use chunks to avoid resource overload
             for nodes in self
                 .meta
@@ -899,21 +918,21 @@ where
                 .collect::<Vec<_>>()
                 .chunks(24)
             {
-                let errlist = thread::scope(|s| {
+                thread::scope(|s| {
                     let hdrs = nodes
                         .iter()
                         .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
                         .collect::<Vec<_>>();
-                    hdrs.into_iter()
-                        .flat_map(|h| h.join())
-                        .filter(|t| t.is_err())
-                        .map(|e| e.unwrap_err())
-                        .collect::<Vec<_>>()
-                });
 
-                check_errlist!(@errlist)
+                    hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
+                        if let Err(e) = t {
+                            errlist.push(e);
+                        }
+                    });
+                });
             }
-            Ok(())
+
+            check_errlist!(errlist)
         }
     }
 
@@ -1220,6 +1239,7 @@ where
 
             check_errlist!(@errlist)
         }
+
         Ok(())
     }
 
@@ -1304,6 +1324,9 @@ where
     }
 
     fn alloc_ports(&self, node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
+        static OCCUPIED_PORTS: LazyLock<RwLock<BTreeMap<HostID, BTreeSet<u16>>>> =
+            LazyLock::new(|| RwLock::new(BTreeMap::new()));
+
         let reserved_ports = P::reserved();
         let reserved = reserved_ports
             .iter()
@@ -1311,7 +1334,15 @@ where
             .collect::<Vec<_>>();
         let remote = Remote::from(host);
 
-        let occupied = remote.get_occupied_ports().c(d!())?;
+        let host_id = host.host_id();
+        let occupied = if let Some(ports) = OCCUPIED_PORTS.read().get(&host_id) {
+            ports.clone()
+        } else {
+            let ports = remote.get_occupied_ports().c(d!())?;
+            OCCUPIED_PORTS.write().insert(host_id, ports.clone());
+            ports
+        };
+
         let port_is_free = |p: &u16| !occupied.contains(p);
 
         let mut res = vec![];

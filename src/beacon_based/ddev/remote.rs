@@ -206,6 +206,7 @@ pub fn put_file_to_hosts(
 
         check_errlist!(@errlist)
     }
+
     Ok(())
 }
 
@@ -220,11 +221,13 @@ pub fn get_file_from_hosts(
     let remote_file = remote_path.file_name().c(d!())?.to_str().c(d!())?;
     let remote_path = &remote_path;
 
+    let mut errlist = vec![];
+
     // Use chunks to avoid resource overload
     for hosts in hosts.as_ref().values().collect::<Vec<_>>().chunks(12) {
         let mut local_paths = vec![];
 
-        let errlist = thread::scope(|s| {
+        thread::scope(|s| {
             hosts
                 .iter()
                 .map(|h| {
@@ -246,9 +249,11 @@ pub fn get_file_from_hosts(
                         local_paths.push(lp);
                     })
                 })
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
+                .for_each(|t| {
+                    if let Err(e) = t {
+                        errlist.push(e);
+                    }
+                });
         });
 
         // Print good resp at first,
@@ -256,10 +261,9 @@ pub fn get_file_from_hosts(
         local_paths.into_iter().for_each(|(h, p)| {
             println!("HOST-[{h}] file are stored at:\n\t{p}");
         });
-
-        check_errlist!(@errlist)
     }
-    Ok(())
+
+    check_errlist!(errlist)
 }
 
 /// Execute some commands or a script on some hosts
@@ -270,10 +274,12 @@ pub fn exec_cmds_on_hosts(
 ) -> Result<()> {
     static LK: Mutex<()> = Mutex::new(());
 
+    let mut errlist = vec![];
+
     if let Some(cmd) = cmd {
         // Use chunks to avoid resource overload
         for hosts in hosts.as_ref().values().collect::<Vec<_>>().chunks(24) {
-            let errlist = thread::scope(|s| {
+            thread::scope(|s| {
                 hosts
                     .iter()
                     .map(|h| {
@@ -289,13 +295,14 @@ pub fn exec_cmds_on_hosts(
                     .collect::<Vec<_>>()
                     .into_iter()
                     .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .map(|e| e.unwrap_err())
-                    .collect::<Vec<_>>()
+                    .for_each(|t| {
+                        if let Err(e) = t {
+                            errlist.push(e);
+                        }
+                    });
             });
-            check_errlist!(@errlist)
         }
-        Ok(())
+        check_errlist!(errlist)
     } else if let Some(sp) = script_path {
         let tmp_script_path = format!("/tmp/._{}", rand::random::<u64>());
         let cmd = format!("bash {}", tmp_script_path);
@@ -306,7 +313,7 @@ pub fn exec_cmds_on_hosts(
 
         // Use chunks to avoid resource overload
         for hosts in hosts.as_ref().values().collect::<Vec<_>>().chunks(12) {
-            let errlist = thread::scope(|s| {
+            thread::scope(|s| {
                 hosts
                     .iter()
                     .map(|h| {
@@ -335,13 +342,14 @@ pub fn exec_cmds_on_hosts(
                     .collect::<Vec<_>>()
                     .into_iter()
                     .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .map(|e| e.unwrap_err())
-                    .collect::<Vec<_>>()
+                    .for_each(|t| {
+                        if let Err(e) = t {
+                            errlist.push(e);
+                        }
+                    });
             });
-            check_errlist!(@errlist)
         }
-        Ok(())
+        check_errlist!(errlist)
     } else {
         Err(eg!("neither `cmd` nor `script_path` has value!"))
     }
@@ -359,6 +367,8 @@ where
 {
     let local_base_dir = local_base_dir.unwrap_or("/tmp");
 
+    let mut errlist = vec![];
+
     // Use chunks to avoid resource overload
     for nodes in env
         .meta
@@ -370,7 +380,7 @@ where
     {
         let mut path_map = BTreeMap::new();
 
-        let errlist = thread::scope(|s| {
+        thread::scope(|s| {
             nodes
                 .iter()
                 .flat_map(|n| {
@@ -406,9 +416,11 @@ where
                         path_map.entry(f).or_insert_with(Vec::new).push(lp);
                     })
                 })
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
+                .for_each(|t| {
+                    if let Err(e) = t {
+                        errlist.push(e);
+                    }
+                });
         });
 
         // Print good resp at first,
@@ -419,11 +431,10 @@ where
                 println!("\t- {}", p);
             });
         });
-
-        // Then pop err msg
-        check_errlist!(@errlist)
     }
-    Ok(())
+
+    // Then pop err msg
+    check_errlist!(errlist)
 }
 
 pub fn collect_tgz_from_nodes<'a, C, P, S>(
@@ -438,6 +449,8 @@ where
 {
     let local_base_dir = local_base_dir.unwrap_or("/tmp");
 
+    let mut errlist = vec![];
+
     // Use chunks to avoid resource overload
     for nodes in env
         .meta
@@ -449,7 +462,7 @@ where
     {
         let mut path_map = BTreeMap::new();
 
-        let errlist = thread::scope(|s| {
+        thread::scope(|s| {
             nodes
                 .iter()
                 .flat_map(|n| {
@@ -491,9 +504,11 @@ where
                 .collect::<Vec<_>>()
                 .into_iter()
                 .flat_map(|h| h.join())
-                .filter(|t| t.is_err())
-                .map(|e| e.unwrap_err())
-                .collect::<Vec<_>>()
+                .for_each(|t| {
+                    if let Err(e) = t {
+                        errlist.push(e);
+                    }
+                });
         });
 
         // Print good resp at first,
@@ -504,11 +519,10 @@ where
                 println!("\t- {}", p);
             });
         });
-
-        // Then pop err msg
-        check_errlist!(@errlist)
     }
-    Ok(())
+
+    // Then pop err msg
+    check_errlist!(errlist)
 }
 
 pub(super) fn generate_name_from_path(path: &str) -> String {
