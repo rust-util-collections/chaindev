@@ -63,23 +63,13 @@ where
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
-                        for i in 1..=*num {
-                            let id = env
-                                .push_node(
-                                    alt!(
-                                        *fullnode,
-                                        NodeKind::FullNode,
-                                        NodeKind::ArchiveNode,
-                                    ),
-                                    Some(*node_mark),
-                                    host_addr.as_ref(),
-                                )
-                                .c(d!())?;
-                            println!(
-                                "The {i}th new node has been created, NodeID: {id}"
-                            );
-                        }
-                        Ok(())
+                        env.push_nodes(
+                            alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode,),
+                            Some(*node_mark),
+                            host_addr.as_ref(),
+                            *num,
+                        )
+                        .c(d!())
                     })
             }
             Op::MigrateNodes((node_ids, host_addr)) => {
@@ -101,7 +91,7 @@ where
                 .c(d!())
                 .and_then(|mut env| {
                     if let Some(ids) = node_ids {
-                        for (i, id) in ids.iter().copied().enumerate() {
+                        for (i, id) in ids.iter().rev().copied().enumerate() {
                             let id_returned = env.kick_node(Some(id)).c(d!())?;
                             assert_eq!(id, id_returned);
                             println!(
@@ -145,7 +135,7 @@ where
                 .and_then(|mut env| {
                     if let Some(ids) = node_ids {
                         for (i, id) in ids.iter().copied().enumerate() {
-                            env.start(Some(id)).c(d!())?;
+                            env.start(Some(vec![id])).c(d!())?;
                             println!(
                                 "The {}th node has been started, NodeID: {id}",
                                 1 + i
@@ -161,7 +151,7 @@ where
                 .c(d!())
                 .and_then(|mut env| {
                     if let Some(ids) = node_ids {
-                        for (i, id) in ids.iter().copied().enumerate() {
+                        for (i, id) in ids.iter().rev().copied().enumerate() {
                             env.stop(Some(id), *force).c(d!())?;
                             println!(
                                 "The {}th node has been stopped, NodeID: {id}",
@@ -401,7 +391,7 @@ where
                 for hosts in opts.hosts.as_ref().values().collect::<Vec<_>>().chunks(24)
                 {
                     thread::scope(|s| {
-                        let hdrs = hosts
+                        hosts
                             .iter()
                             .map(|h| {
                                 let cmd = format!("rm -rf {}", &home);
@@ -410,13 +400,14 @@ where
                                     info!(remote.exec_cmd(&cmd), &h.meta.addr)
                                 })
                             })
-                            .collect::<Vec<_>>();
-
-                        hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
-                            if let Err(e) = t {
-                                errlist.push(e);
-                            }
-                        });
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .flat_map(|h| h.join())
+                            .for_each(|t| {
+                                if let Err(e) = t {
+                                    errlist.push(e);
+                                }
+                            });
                     });
                 }
 
@@ -427,19 +418,23 @@ where
         };
 
         let remote_exists = || {
-            let hdrs = opts
-                .hosts
-                .as_ref()
-                .values()
-                .map(|h| {
-                    let h = h.clone();
-                    let cmd = format!(r"\ls {}/*", &home);
-                    thread::spawn(move || Remote::from(&h).exec_cmd(&cmd))
-                })
-                .collect::<Vec<_>>();
-            hdrs.into_iter()
-                .flat_map(|h| h.join())
-                .any(|ret| ret.is_ok())
+            for hosts in opts.hosts.as_ref().values().collect::<Vec<_>>().chunks(24) {
+                let exists = thread::scope(|s| {
+                    hosts
+                        .iter()
+                        .map(|h| {
+                            let cmd = format!(r"\ls {}/*", &home);
+                            s.spawn(move || Remote::from(*h).exec_cmd(&cmd))
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .flat_map(|h| h.join())
+                        .any(|ret| ret.is_ok())
+                });
+
+                alt!(exists, return true);
+            }
+            false
         };
 
         if fs::metadata(&home).is_ok() || remote_exists() {
@@ -490,7 +485,8 @@ where
             .chunks(24)
         {
             let errlist = thread::scope(|s| {
-                let hdrs = hosts
+                // collect and iter: let thread::scope finish their work first
+                hosts
                     .iter()
                     .map(|h| {
                         let cmd = format!("mkdir -p {}", &env.meta.home);
@@ -499,9 +495,8 @@ where
                             info!(remote.exec_cmd(&cmd), &h.meta.addr)
                         })
                     })
-                    .collect::<Vec<_>>();
-
-                hdrs.into_iter()
+                    .collect::<Vec<_>>()
+                    .into_iter()
                     .flat_map(|h| h.join())
                     .filter(|t| t.is_err())
                     .map(|e| e.unwrap_err())
@@ -512,20 +507,25 @@ where
         }
 
         macro_rules! add_initial_nodes {
-            ($kind: expr) => {{
-                let id = env.next_node_id();
-                env.alloc_resources(id, $kind, None, None).c(d!())?;
+            ($ids: expr, $kind: expr) => {{
+                env.alloc_resources($ids, $kind, None, None).c(d!())?;
             }};
         }
 
-        add_initial_nodes!(NodeKind::Fuhrer);
-        for _ in 0..opts.initial_node_num {
-            add_initial_nodes!(alt!(
+        let id = env.next_node_id();
+        add_initial_nodes!(&[id], NodeKind::Fuhrer);
+
+        let ids = (0..opts.initial_node_num)
+            .map(|_| env.next_node_id())
+            .collect::<Vec<_>>();
+        add_initial_nodes!(
+            &ids,
+            alt!(
                 opts.initial_nodes_fullnode,
                 NodeKind::FullNode,
                 NodeKind::ArchiveNode,
-            ));
-        }
+            )
+        );
 
         env.gen_genesis()
             .c(d!())
@@ -559,16 +559,17 @@ where
             .chunks(24)
         {
             thread::scope(|s| {
-                let hdrs = nodes
+                nodes
                     .iter()
                     .map(|n| s.spawn(|| n.clean_up().c(d!())))
-                    .collect::<Vec<_>>();
-
-                hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
-                    if let Err(e) = t {
-                        errlist.push(e);
-                    }
-                });
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .for_each(|t| {
+                        if let Err(e) = t {
+                            errlist.push(e);
+                        }
+                    });
             });
         }
 
@@ -589,20 +590,21 @@ where
             .chunks(24)
         {
             thread::scope(|s| {
-                let hdrs = hosts
+                hosts
                     .iter()
                     .map(|h| {
                         let remote = Remote::from(*h);
                         let cmd = format!("rm -rf {}", &self.meta.home);
                         s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
                     })
-                    .collect::<Vec<_>>();
-
-                hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
-                    if let Err(e) = t {
-                        errlist.push(e);
-                    }
-                });
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .for_each(|t| {
+                        if let Err(e) = t {
+                            errlist.push(e);
+                        }
+                    });
             });
         }
 
@@ -629,28 +631,30 @@ where
 
     // Fuhrer nodes are kept by system for now,
     // so only the other nodes can be added on demand
-    fn push_node(
+    fn push_nodes(
         &mut self,
         node_kind: NodeKind,
         node_mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
-    ) -> Result<NodeID> {
-        self.push_node_data(node_kind, node_mark, host_addr)
+        num: u8,
+    ) -> Result<()> {
+        self.push_nodes_data(node_kind, node_mark, host_addr, num)
             .c(d!())
-            .and_then(|id| self.start(Some(id)).c(d!()).map(|_| id))
+            .and_then(|ids| self.start(Some(ids)).c(d!()))
     }
 
-    fn push_node_data(
+    fn push_nodes_data(
         &mut self,
         node_kind: NodeKind,
         node_mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
-    ) -> Result<NodeID> {
-        let id = self.next_node_id();
-        self.alloc_resources(id, node_kind, node_mark, host_addr)
+        num: u8,
+    ) -> Result<Vec<NodeID>> {
+        let ids = (0..num).map(|_| self.next_node_id()).collect::<Vec<_>>();
+        self.alloc_resources(&ids, node_kind, node_mark, host_addr)
             .c(d!())
-            .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .map(|_| id)
+            .and_then(|_| self.apply_genesis(Some(&ids)).c(d!()))
+            .map(|_| ids)
     }
 
     // Migrate the target node to another host,
@@ -700,7 +704,10 @@ where
         }
 
         let new_node_id = self
-            .push_node_data(old_node.kind, old_node.mark, Some(&new_host_addr))
+            .push_nodes_data(old_node.kind, old_node.mark, Some(&new_host_addr), 1)
+            .c(d!())?
+            .into_iter()
+            .next()
             .c(d!())?;
         let new_node = self
             .meta
@@ -833,28 +840,42 @@ where
     }
 
     // Start one or all nodes
-    fn start(&mut self, n: Option<NodeID>) -> Result<()> {
-        let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
-            self.meta
-                .fuhrers
-                .keys()
-                .chain(self.meta.nodes.keys())
-                .copied()
-                .collect()
-        });
+    fn start(&mut self, n: Option<Vec<NodeID>>) -> Result<()> {
+        let ids = n
+            .map(|mut ids| {
+                ids.sort();
+                ids.dedup();
+                ids
+            })
+            .unwrap_or_else(|| {
+                self.meta
+                    .fuhrers
+                    .keys()
+                    .chain(self.meta.nodes.keys())
+                    .copied()
+                    .collect()
+            });
 
         self.update_online_status(&ids, &[]);
 
         // Use chunks to avoid resource overload
-        for ids in ids.chunks(12) {
+        for (idx, ids) in ids.chunks(12).enumerate() {
             let errlist = thread::scope(|s| {
                 let mut hdrs = vec![];
-                for i in ids.iter() {
+                for id in ids.iter() {
                     let hdr = s.spawn(|| {
-                        if let Some(n) =
-                            self.meta.fuhrers.get(i).or_else(|| self.meta.nodes.get(i))
+                        if let Some(n) = self
+                            .meta
+                            .fuhrers
+                            .get(id)
+                            .or_else(|| self.meta.nodes.get(id))
                         {
-                            n.start(self).c(d!())
+                            n.start(self).c(d!()).map(|_| {
+                                println!(
+                                    "[Chunk {idx}] The node(id: {}) has been started",
+                                    *id
+                                );
+                            })
                         } else {
                             Err(eg!("not exist"))
                         }
@@ -919,16 +940,17 @@ where
                 .chunks(24)
             {
                 thread::scope(|s| {
-                    let hdrs = nodes
+                    nodes
                         .iter()
                         .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
-                        .collect::<Vec<_>>();
-
-                    hdrs.into_iter().flat_map(|h| h.join()).for_each(|t| {
-                        if let Err(e) = t {
-                            errlist.push(e);
-                        }
-                    });
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .flat_map(|h| h.join())
+                        .for_each(|t| {
+                            if let Err(e) = t {
+                                errlist.push(e);
+                            }
+                        });
                 });
             }
 
@@ -1024,23 +1046,25 @@ where
     // 3. Insert new node to the meta of env
     fn alloc_resources(
         &mut self,
-        id: NodeID,
+        ids: &[NodeID],
         kind: NodeKind,
         mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
     ) -> Result<()> {
-        self.alloc_hosts_ports(&kind, host_addr) // 1.
+        self.alloc_hosts_ports(ids, &kind, host_addr) // 1.
             .c(d!())
-            .and_then(|(host, ports)| {
-                self.apply_resources(id, kind, mark, host, ports).c(d!()) // 2.
+            .and_then(|nodes_info| {
+                self.apply_resources(&nodes_info, kind, mark).c(d!()) // 2.
             })
-            .map(|node| {
-                match kind {
-                    NodeKind::FullNode | NodeKind::ArchiveNode => {
-                        self.meta.nodes.insert(id, node)
+            .map(|nodes| {
+                nodes.into_iter().for_each(|n| match kind {
+                    NodeKind::ArchiveNode | NodeKind::FullNode => {
+                        self.meta.nodes.insert(n.id, n);
                     }
-                    NodeKind::Fuhrer => self.meta.fuhrers.insert(id, node),
-                };
+                    NodeKind::Fuhrer => {
+                        self.meta.fuhrers.insert(n.id, n);
+                    }
+                });
             })
             .and_then(|_| self.write_cfg().c(d!()))
     }
@@ -1048,24 +1072,45 @@ where
     #[inline(always)]
     fn apply_resources(
         &self,
-        id: NodeID,
+        nodes_info: &[(NodeID, HostMeta, P)],
         kind: NodeKind,
         mark: Option<NodeMark>,
-        host: HostMeta,
-        ports: P,
-    ) -> Result<Node<P>> {
-        let home = format!("{}/{}", self.meta.home, id);
-        Remote::from(&host)
-            .exec_cmd(&format!("mkdir -p {0} && touch {0}/{MGMT_OPS_LOG}", &home))
-            .c(d!())
-            .map(|_| Node {
-                id,
-                home,
-                kind,
-                mark,
-                host,
-                ports,
+    ) -> Result<Vec<Node<P>>> {
+        let mut ret = vec![];
+
+        for ni in nodes_info.chunks(24) {
+            thread::scope(|s| {
+                ni.iter()
+                    .cloned()
+                    .map(|(id, host, ports)| {
+                        s.spawn(move || {
+                            let home = format!("{}/{}", self.meta.home, id);
+                            Remote::from(&host)
+                                .exec_cmd(&format!(
+                                    "mkdir -p {0} && touch {0}/{MGMT_OPS_LOG}",
+                                    &home
+                                ))
+                                .c(d!())
+                                .map(|_| Node {
+                                    id,
+                                    home,
+                                    kind,
+                                    mark,
+                                    host,
+                                    ports,
+                                })
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|hdr| hdr.join())
+                    .collect::<Result<Vec<_>>>()
+                    .map(|mut n| ret.append(&mut n))
             })
+            .c(d!())?;
+        }
+
+        Ok(ret)
     }
 
     #[inline(always)]
@@ -1187,18 +1232,21 @@ where
         self.write_cfg().c(d!())
     }
 
-    fn apply_genesis(&self, id: Option<NodeID>) -> Result<()> {
+    fn apply_genesis(&self, ids: Option<&[NodeID]>) -> Result<()> {
         if self.meta.genesis.is_empty() || self.meta.genesis_vkeys.is_empty() {
             return Err(eg!("BUG: no genesis data"));
         }
 
-        let nodes = if let Some(id) = id {
-            self.meta
-                .nodes
-                .get(&id)
-                .or_else(|| self.meta.fuhrers.get(&id))
-                .c(d!())
-                .map(|n| vec![n])?
+        let nodes = if let Some(ids) = ids {
+            ids.iter()
+                .map(|id| {
+                    self.meta
+                        .nodes
+                        .get(id)
+                        .or_else(|| self.meta.fuhrers.get(id))
+                })
+                .collect::<Option<Vec<_>>>()
+                .c(d!())?
         } else {
             self.meta
                 .fuhrers
@@ -1267,12 +1315,37 @@ where
     // Alloc <host,ports> for a new node
     fn alloc_hosts_ports(
         &mut self,
+        ids: &[NodeID],
         node_kind: &NodeKind,
         host_addr: Option<&HostAddr>,
-    ) -> Result<(HostMeta, P)> {
-        let host = self.alloc_host(node_kind, host_addr).c(d!())?;
-        let ports = self.alloc_ports(node_kind, &host).c(d!())?;
-        Ok((host, ports))
+    ) -> Result<Vec<(NodeID, HostMeta, P)>> {
+        let mut hosts = vec![];
+        for _ in ids.iter() {
+            hosts.push(self.alloc_host(node_kind, host_addr).c(d!())?);
+        }
+
+        let mut ports = vec![];
+        for hosts in hosts.chunks(24) {
+            thread::scope(|s| {
+                hosts
+                    .iter()
+                    .map(|h| s.spawn(|| self.alloc_ports(node_kind, h).c(d!())))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|hdr| hdr.join())
+                    .collect::<Result<Vec<_>>>()
+                    .map(|mut p| ports.append(&mut p))
+            })
+            .c(d!())?;
+        }
+
+        Ok(ids
+            .iter()
+            .copied()
+            .zip(hosts)
+            .zip(ports)
+            .map(|((id, host), ports)| (id, host, ports))
+            .collect())
     }
 
     fn alloc_host(
