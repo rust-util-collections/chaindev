@@ -370,13 +370,14 @@ where
     let mut errlist = vec![];
 
     // Use chunks to avoid resource overload
-    for nodes in env
+    for (idx, nodes) in env
         .meta
         .fuhrers
         .values()
         .chain(env.meta.nodes.values())
         .collect::<Vec<_>>()
         .chunks(12)
+        .enumerate()
     {
         let mut path_map = BTreeMap::new();
 
@@ -411,13 +412,11 @@ where
                 .collect::<Vec<_>>()
                 .into_iter()
                 .flat_map(|h| h.join())
-                .map(|lp| {
-                    lp.map(|(f, lp)| {
+                .for_each(|t| match t {
+                    Ok((f, lp)) => {
                         path_map.entry(f).or_insert_with(Vec::new).push(lp);
-                    })
-                })
-                .for_each(|t| {
-                    if let Err(e) = t {
+                    }
+                    Err(e) => {
                         errlist.push(e);
                     }
                 });
@@ -425,7 +424,7 @@ where
 
         // Print good resp at first,
         path_map.into_iter().for_each(|(f, mut paths)| {
-            println!("Files of the '{}' are stored at:", f);
+            println!("[Chunk {idx}] Files of the '{}' are stored at:", f);
             paths.sort();
             paths.iter().for_each(|p| {
                 println!("\t- {}", p);
@@ -452,13 +451,14 @@ where
     let mut errlist = vec![];
 
     // Use chunks to avoid resource overload
-    for nodes in env
+    for (idx, nodes) in env
         .meta
         .fuhrers
         .values()
         .chain(env.meta.nodes.values())
         .collect::<Vec<_>>()
         .chunks(12)
+        .enumerate()
     {
         let mut path_map = BTreeMap::new();
 
@@ -490,22 +490,25 @@ where
                         &tgz_name,
                         host.addr.connection_addr()
                     );
-                    path_map
-                        .entry(relative_path)
-                        .or_insert_with(Vec::new)
-                        .push(local_path.clone());
                     s.spawn(move || {
                         let remote = Remote::from(&host);
-                        remote.exec_cmd(&tgzcmd).c(d!()).and_then(|_| {
-                            remote.get_file(remote_tgz_path, &local_path).c(d!())
-                        })
+                        remote
+                            .exec_cmd(&tgzcmd)
+                            .c(d!())
+                            .and_then(|_| {
+                                remote.get_file(remote_tgz_path, &local_path).c(d!())
+                            })
+                            .map(|_| (relative_path, local_path))
                     })
                 })
                 .collect::<Vec<_>>()
                 .into_iter()
                 .flat_map(|h| h.join())
-                .for_each(|t| {
-                    if let Err(e) = t {
+                .for_each(|t| match t {
+                    Ok((f, lp)) => {
+                        path_map.entry(f).or_insert_with(Vec::new).push(lp);
+                    }
+                    Err(e) => {
                         errlist.push(e);
                     }
                 });
@@ -513,7 +516,7 @@ where
 
         // Print good resp at first,
         path_map.into_iter().for_each(|(f, mut paths)| {
-            println!("Files of the '{}' are stored at:", f);
+            println!("[Chunk {idx}] Tar packages of the '{}' are stored at:", f);
             paths.sort();
             paths.iter().for_each(|p| {
                 println!("\t- {}", p);
