@@ -1444,9 +1444,9 @@ where
         {
             res = reserved_ports;
         } else {
-            let mut cnter = 10000;
+            let mut cnter = 5000;
             while reserved.len() > res.len() {
-                let p = 20000 + random::<u16>() % (65535 - 20000);
+                let p = 9999 + random::<u16>() % (65535 - 21111);
                 let hp = format!("{},{}", &host.addr, p);
                 if !res.contains(&p)
                     && !reserved_ports.contains(&p)
