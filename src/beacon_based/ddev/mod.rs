@@ -1420,7 +1420,7 @@ where
         // get the owned preserved ports on their own scopes
         if matches!(node_kind, NodeKind::Fuhrer)
             && ENV_NAME_DEFAULT == self.meta.name.as_ref()
-            && reserved.iter().all(|hp| !PC.contains(hp))
+            && reserved.iter().all(|hp| !PC.read().contains(hp))
             && reserved_ports.iter().all(port_is_free)
         {
             res = reserved_ports;
@@ -1429,7 +1429,10 @@ where
             while reserved.len() > res.len() {
                 let p = 20000 + random::<u16>() % (65535 - 20000);
                 let hp = format!("{},{}", &host.addr, p);
-                if !reserved.contains(&hp) && !PC.contains(&hp) && port_is_free(&p) {
+                if !reserved.contains(&hp)
+                    && !PC.read().contains(&hp)
+                    && port_is_free(&p)
+                {
                     res.push(p);
                 }
                 cnter -= 1;
@@ -1437,11 +1440,16 @@ where
             }
         }
 
-        PC.set(
-            &res.iter()
-                .map(|p| format!("{},{}", &host.addr, p))
-                .collect::<Vec<_>>(),
-        );
+        let mut r = res
+            .iter()
+            .map(|p| format!("{},{}", &host.addr, p))
+            .collect::<Vec<_>>();
+        let old_len = r.len();
+        r.sort();
+        r.dedup();
+        assert_eq!(r.len(), old_len);
+
+        PC.write().set(&r);
 
         P::try_create(&res).c(d!())
     }
@@ -1552,7 +1560,7 @@ impl<P: NodePorts> Node<P> {
     // - Remove all files related to this node
     fn clean_up(&self) -> Result<()> {
         for port in self.ports.get_port_list().iter() {
-            PC.remove(&format!("{},{}", &self.host.addr, port));
+            PC.write().remove(&format!("{},{}", &self.host.addr, port));
         }
 
         // Remove all related files
@@ -1695,7 +1703,8 @@ where
     pub force_create: bool,
 }
 
-static PC: LazyLock<PortsCache> = LazyLock::new(|| pnk!(PortsCache::load_or_create()));
+static PC: LazyLock<RwLock<PortsCache>> =
+    LazyLock::new(|| RwLock::new(pnk!(PortsCache::load_or_create())));
 
 #[derive(Serialize, Deserialize)]
 struct PortsCache {
@@ -1732,11 +1741,10 @@ impl PortsCache {
         self.port_set.contains_key(&port.to_owned())
     }
 
-    fn set(&self, ports: &[String]) {
+    fn set(&mut self, ports: &[String]) {
         for p in ports {
-            assert!(unsafe { self.port_set.shadow() }
-                .insert(&p.to_owned(), &())
-                .is_none());
+            let v = self.port_set.insert(&p.to_owned(), &());
+            assert!(v.is_none(), "{}", p);
         }
     }
 
