@@ -382,7 +382,7 @@ where
                 env.destroy(true).c(d!())?;
             }
 
-            fs::remove_dir_all(&home).c(d!())?;
+            omit!(fs::remove_dir_all(&home));
 
             let force_clean_up = || -> Result<()> {
                 let mut errlist = vec![];
@@ -1324,20 +1324,10 @@ where
             hosts.push(self.alloc_host(node_kind, host_addr).c(d!())?);
         }
 
-        let mut ports = vec![];
-        for hosts in hosts.chunks(24) {
-            thread::scope(|s| {
-                hosts
-                    .iter()
-                    .map(|h| s.spawn(|| self.alloc_ports(node_kind, h).c(d!())))
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .flat_map(|hdr| hdr.join())
-                    .collect::<Result<Vec<_>>>()
-                    .map(|mut p| ports.append(&mut p))
-            })
-            .c(d!())?;
-        }
+        let ports = hosts
+            .iter()
+            .map(|h| self.alloc_ports(node_kind, h).c(d!()))
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(ids
             .iter()
