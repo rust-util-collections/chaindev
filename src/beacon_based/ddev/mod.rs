@@ -1335,12 +1335,17 @@ where
         let remote = Remote::from(host);
 
         let host_id = host.host_id();
-        let occupied = if let Some(ports) = OCCUPIED_PORTS.read().get(&host_id) {
-            ports.clone()
-        } else {
-            let ports = remote.get_occupied_ports().c(d!())?;
-            OCCUPIED_PORTS.write().insert(host_id, ports.clone());
-            ports
+
+        let occupied = {
+            // `cloned`: avoid `dead lock`
+            let cache = OCCUPIED_PORTS.read().get(&host_id).cloned();
+            if let Some(ports) = cache {
+                ports
+            } else {
+                let ports = remote.get_occupied_ports().c(d!())?;
+                OCCUPIED_PORTS.write().insert(host_id, ports.clone());
+                ports
+            }
         };
 
         let port_is_free = |p: &u16| !occupied.contains(p);
