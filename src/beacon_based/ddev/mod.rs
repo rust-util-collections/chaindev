@@ -151,14 +151,7 @@ where
                 .c(d!())
                 .and_then(|mut env| {
                     if let Some(ids) = node_ids {
-                        for (i, id) in ids.iter().rev().copied().enumerate() {
-                            env.stop(Some(id), *force).c(d!())?;
-                            println!(
-                                "The {}th node has been stopped, NodeID: {id}",
-                                1 + i
-                            );
-                        }
-                        Ok(())
+                        env.stop(Some(ids), *force).c(d!())
                     } else {
                         env.stop(None, *force).c(d!())
                     }
@@ -910,25 +903,51 @@ where
 
     // - Stop all processes
     // - Release all occupied ports
-    fn stop(&mut self, n: Option<NodeID>, force: bool) -> Result<()> {
-        if let Some(id) = n {
-            if let Some(n) = self
-                .meta
-                .nodes
-                .get(&id)
-                .or_else(|| self.meta.fuhrers.get(&id))
-            {
-                n.stop(self, force)
-                    .c(d!(&n.host.addr))
-                    .map(|_| self.update_online_status(&[], &[id]))
-            } else {
-                Err(eg!("The target node not found"))
+    fn stop(&mut self, n: Option<&BTreeSet<NodeID>>, force: bool) -> Result<()> {
+        let mut errlist = vec![];
+
+        if let Some(ids) = n {
+            let nodes = ids
+                .iter()
+                .map(|id| {
+                    self.meta
+                        .nodes
+                        .get(id)
+                        .or_else(|| self.meta.fuhrers.get(id))
+                        .cloned()
+                })
+                .rev()
+                .collect::<Option<Vec<_>>>()
+                .c(d!())?;
+
+            for (idx, nodes) in nodes.chunks(24).enumerate() {
+                thread::scope(|s| {
+                    nodes
+                        .iter()
+                        .map(|n| {
+                            s.spawn(|| {
+                                info!(n.stop(self, force).map(|_| n.id), &n.host.addr)
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .flat_map(|h| h.join())
+                        .collect::<Vec<_>>()
+                })
+                .into_iter()
+                .for_each(|t| match t {
+                    Ok(id) => {
+                        self.update_online_status(&[], &[id]);
+                        println!("[Chunk {idx}] The node(id {id}) has been stopped",);
+                    }
+                    Err(e) => errlist.push(e),
+                });
             }
+
+            check_errlist!(errlist)
         } else {
             // Need NOT to call the `update_online_status`
             // for an entire stopped ENV, meaningless
-
-            let mut errlist = vec![];
 
             // Use chunks to avoid resource overload
             for nodes in self
