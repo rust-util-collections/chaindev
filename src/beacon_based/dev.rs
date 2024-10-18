@@ -958,7 +958,7 @@ impl<Ports: NodePorts> Node<Ports> {
             .write(true)
             .append(true)
             .create(true)
-            .open(format!("{}/mgmt.log", &self.home))
+            .open(format!("{}/{MGMT_OPS_LOG}", &self.home))
             .c(d!())
             .and_then(|mut f| {
                 f.write_all(format!("\n\n[ {} ]\n", datetime!()).as_bytes())

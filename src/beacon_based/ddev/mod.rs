@@ -1056,7 +1056,7 @@ where
     ) -> Result<Node<P>> {
         let home = format!("{}/{}", self.meta.home, id);
         Remote::from(&host)
-            .exec_cmd(&format!("mkdir -p {}", &home))
+            .exec_cmd(&format!("mkdir -p {0} && touch {0}/{MGMT_OPS_LOG}", &home))
             .c(d!())
             .map(|_| Node {
                 id,
@@ -1474,7 +1474,7 @@ impl<P: NodePorts> Node<P> {
 
     fn write_dev_log(&self, log: &str) -> Result<()> {
         let log = format!("\n\n[ {} ]\n{}: {}", datetime!(), &self.host.addr, log);
-        let logfile = format!("{}/mgmt.log", &self.home);
+        let logfile = format!("{}/{MGMT_OPS_LOG}", &self.home);
         Remote::from(&self.host)
             .append_file(logfile, log.as_bytes())
             .c(d!())

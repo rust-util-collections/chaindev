@@ -9,6 +9,7 @@ use std::{env, fmt, fs, sync::LazyLock};
 
 pub const NODE_HOME_GENESIS_DST: &str = "genesis.tar.gz";
 pub const NODE_HOME_VCDATA_DST: &str = "vcdata.tar.gz";
+pub const MGMT_OPS_LOG: &str = "mgmt.log";
 
 ///////////////////////////////////////////////////////////////////////////
 
