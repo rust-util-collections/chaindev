@@ -134,14 +134,7 @@ where
                 .c(d!())
                 .and_then(|mut env| {
                     if let Some(ids) = node_ids {
-                        for (i, id) in ids.iter().copied().enumerate() {
-                            env.start(Some(vec![id])).c(d!())?;
-                            println!(
-                                "The {}th node has been started, NodeID: {id}",
-                                1 + i
-                            );
-                        }
-                        Ok(())
+                        env.start(Some(ids.iter().copied().collect())).c(d!())
                     } else {
                         env.start(None).c(d!())
                     }
