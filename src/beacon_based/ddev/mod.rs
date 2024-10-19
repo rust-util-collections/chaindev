@@ -130,15 +130,21 @@ where
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start(node_ids) => Env::<C, P, S>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| {
-                    if let Some(ids) = node_ids {
-                        env.start(Some(ids.iter().copied().collect())).c(d!())
-                    } else {
-                        env.start(None).c(d!())
-                    }
-                }),
+            Op::Start((node_ids, ignore_failed)) => {
+                Env::<C, P, S>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|mut env| {
+                        if let Some(ids) = node_ids {
+                            env.start(
+                                Some(ids.iter().copied().collect()),
+                                *ignore_failed,
+                            )
+                            .c(d!())
+                        } else {
+                            env.start(None, *ignore_failed).c(d!())
+                        }
+                    })
+            }
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
             Op::Stop((node_ids, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
@@ -516,7 +522,7 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.start(None).c(d!()))
+            .and_then(|_| env.start(None, false).c(d!()))
     }
 
     // Destroy all nodes
@@ -626,7 +632,7 @@ where
     ) -> Result<()> {
         self.push_nodes_data(node_kind, node_mark, host_addr, num)
             .c(d!())
-            .and_then(|ids| self.start(Some(ids)).c(d!()))
+            .and_then(|ids| self.start(Some(ids), false).c(d!()))
     }
 
     fn push_nodes_data(
@@ -635,12 +641,12 @@ where
         node_mark: Option<NodeMark>,
         host_addr: Option<&HostAddr>,
         num: u8,
-    ) -> Result<Vec<NodeID>> {
+    ) -> Result<BTreeSet<NodeID>> {
         let ids = (0..num).map(|_| self.next_node_id()).collect::<Vec<_>>();
         self.alloc_resources(&ids, node_kind, node_mark, host_addr)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(&ids)).c(d!()))
-            .map(|_| ids)
+            .map(|_| ids.into_iter().collect())
     }
 
     // Migrate the target node to another host,
@@ -731,7 +737,7 @@ where
         };
 
         if self.meta.fuhrers.contains_key(&id) {
-            return Err(eg!("Node-[{id}] is a fuhrer node, deny to kick"));
+            return Err(eg!("Node-[{}] is a fuhrer node, deny to kick", id));
         }
 
         self.meta
@@ -826,56 +832,83 @@ where
     }
 
     // Start one or all nodes
-    fn start(&mut self, n: Option<Vec<NodeID>>) -> Result<()> {
-        let ids = n
-            .map(|mut ids| {
-                ids.sort();
-                ids.dedup();
-                ids
-            })
-            .unwrap_or_else(|| {
-                self.meta
-                    .fuhrers
-                    .keys()
-                    .chain(self.meta.nodes.keys())
-                    .copied()
-                    .collect()
-            });
+    fn start(
+        &mut self,
+        ids: Option<BTreeSet<NodeID>>,
+        ignore_failed: bool,
+    ) -> Result<()> {
+        let mut nodes = vec![];
 
-        self.update_online_status(&ids, &[]);
+        if let Some(ids) = ids {
+            for id in ids.iter() {
+                if let Some(n) = self
+                    .meta
+                    .nodes
+                    .get_mut(id)
+                    .or_else(|| self.meta.fuhrers.get_mut(id))
+                {
+                    n.drop_ports();
+                    n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+
+                    // todo: update ports
+                    nodes.push(n.clone());
+                } else {
+                    return Err(eg!("The node(id: {}) does not exist", id));
+                }
+            }
+        } else {
+            for n in self
+                .meta
+                .fuhrers
+                .values_mut()
+                .chain(self.meta.nodes.values_mut())
+            {
+                n.drop_ports();
+                n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+
+                // todo: update ports
+                nodes.push(n.clone());
+            }
+        };
+
+        self.write_cfg().c(d!())?;
+
+        let mut online_ids = vec![];
+        let mut errlist = vec![];
 
         // Use chunks to avoid resource overload
-        for (idx, ids) in ids.chunks(12).enumerate() {
-            let errlist = thread::scope(|s| {
-                let mut hdrs = vec![];
-                for id in ids.iter() {
-                    let hdr = s.spawn(|| {
-                        if let Some(n) = self
-                            .meta
-                            .fuhrers
-                            .get(id)
-                            .or_else(|| self.meta.nodes.get(id))
-                        {
+        for (idx, nodes) in nodes.chunks(12).enumerate() {
+            thread::scope(|s| {
+                nodes
+                    .iter()
+                    .map(|n| {
+                        s.spawn(|| {
                             n.start(self).c(d!()).map(|_| {
                                 println!(
                                     "[Chunk {idx}] The node(id: {}) has been started",
-                                    *id
+                                    n.id
                                 );
+                                n.id
                             })
-                        } else {
-                            Err(eg!("not exist"))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .for_each(|t| match t {
+                        Ok(id) => {
+                            online_ids.push(id);
+                        }
+                        Err(e) => {
+                            errlist.push(e);
                         }
                     });
-                    hdrs.push(hdr);
-                }
-
-                hdrs.into_iter()
-                    .flat_map(|h| h.join())
-                    .filter(|t| t.is_err())
-                    .map(|e| e.unwrap_err())
-                    .collect::<Vec<_>>()
             });
+        }
 
+        self.update_online_status(&online_ids, &[]);
+
+        if !ignore_failed {
             check_errlist!(@errlist)
         }
 
@@ -888,7 +921,7 @@ where
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .start(None)
+                .start(None, false)
                 .c(d!())?;
         }
         Ok(())
@@ -899,75 +932,52 @@ where
     fn stop(&mut self, n: Option<&BTreeSet<NodeID>>, force: bool) -> Result<()> {
         let mut errlist = vec![];
 
-        if let Some(ids) = n {
-            let nodes = ids
-                .iter()
+        let nodes = if let Some(ids) = n {
+            ids.iter()
                 .map(|id| {
                     self.meta
                         .nodes
                         .get(id)
                         .or_else(|| self.meta.fuhrers.get(id))
-                        .cloned()
                 })
                 .rev()
                 .collect::<Option<Vec<_>>>()
-                .c(d!())?;
-
-            for (idx, nodes) in nodes.chunks(24).enumerate() {
-                thread::scope(|s| {
-                    nodes
-                        .iter()
-                        .map(|n| {
-                            s.spawn(|| {
-                                info!(n.stop(self, force).map(|_| n.id), &n.host.addr)
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .flat_map(|h| h.join())
-                        .collect::<Vec<_>>()
-                })
-                .into_iter()
-                .for_each(|t| match t {
-                    Ok(id) => {
-                        self.update_online_status(&[], &[id]);
-                        println!("[Chunk {idx}] The node(id {id}) has been stopped",);
-                    }
-                    Err(e) => errlist.push(e),
-                });
-            }
-
-            check_errlist!(errlist)
+                .c(d!())?
         } else {
-            // Need NOT to call the `update_online_status`
-            // for an entire stopped ENV, meaningless
-
-            // Use chunks to avoid resource overload
-            for nodes in self
-                .meta
+            self.meta
                 .fuhrers
                 .values()
                 .chain(self.meta.nodes.values())
                 .collect::<Vec<_>>()
-                .chunks(24)
-            {
-                thread::scope(|s| {
-                    nodes
-                        .iter()
-                        .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .flat_map(|h| h.join())
-                        .for_each(|t| {
-                            if let Err(e) = t {
-                                errlist.push(e);
-                            }
-                        });
-                });
-            }
+        };
 
-            check_errlist!(errlist)
+        let mut offline_ids = vec![];
+        for (idx, nodes) in nodes.chunks(24).enumerate() {
+            thread::scope(|s| {
+                nodes
+                    .iter()
+                    .map(|n| {
+                        s.spawn(|| {
+                            info!(n.stop(self, force).map(|_| n.id), &n.host.addr)
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|h| h.join())
+                    .for_each(|t| match t {
+                        Ok(id) => {
+                            offline_ids.push(id);
+                            println!(
+                                "[Chunk {idx}] The node(id {id}) has been stopped",
+                            );
+                        }
+                        Err(e) => errlist.push(e),
+                    });
+            });
         }
+
+        self.update_online_status(&[], &offline_ids);
+        check_errlist!(errlist)
     }
 
     // Stop all existing ENVs
@@ -1084,7 +1094,7 @@ where
     #[inline(always)]
     fn apply_resources(
         &self,
-        nodes_info: &[(NodeID, HostMeta, P)],
+        nodes_info: &[(NodeID, HostMeta)],
         kind: NodeKind,
         mark: Option<NodeMark>,
     ) -> Result<Vec<Node<P>>> {
@@ -1094,7 +1104,7 @@ where
             thread::scope(|s| {
                 ni.iter()
                     .cloned()
-                    .map(|(id, host, ports)| {
+                    .map(|(id, host)| {
                         s.spawn(move || {
                             let home = format!("{}/{}", self.meta.home, id);
                             Remote::from(&host)
@@ -1109,7 +1119,7 @@ where
                                     kind,
                                     mark,
                                     host,
-                                    ports,
+                                    ports: P::default(), //  mock
                                 })
                         })
                     })
@@ -1324,30 +1334,20 @@ where
             })
     }
 
-    // Alloc <host,ports> for a new node
+    // Alloc hosts for new nodes,
+    // ports are allocated each time the node is started
     fn alloc_hosts_ports(
         &mut self,
         ids: &[NodeID],
         node_kind: &NodeKind,
         host_addr: Option<&HostAddr>,
-    ) -> Result<Vec<(NodeID, HostMeta, P)>> {
+    ) -> Result<Vec<(NodeID, HostMeta)>> {
         let mut hosts = vec![];
         for _ in ids.iter() {
             hosts.push(self.alloc_host(node_kind, host_addr).c(d!())?);
         }
 
-        let ports = hosts
-            .iter()
-            .map(|h| self.alloc_ports(node_kind, h).c(d!()))
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(ids
-            .iter()
-            .copied()
-            .zip(hosts)
-            .zip(ports)
-            .map(|((id, host), ports)| (id, host, ports))
-            .collect())
+        Ok(ids.iter().copied().zip(hosts).collect())
     }
 
     fn alloc_host(
@@ -1398,7 +1398,7 @@ where
         Ok(h)
     }
 
-    fn alloc_ports(&self, node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
+    fn alloc_ports(node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
         static OCCUPIED_PORTS: LazyLock<RwLock<BTreeMap<HostID, BTreeSet<u16>>>> =
             LazyLock::new(|| RwLock::new(BTreeMap::new()));
 
@@ -1431,7 +1431,6 @@ where
         // allow non-valdator nodes(on different hosts) to
         // get the owned preserved ports on their own scopes
         if matches!(node_kind, NodeKind::Fuhrer)
-            && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved.iter().all(|hp| !PC.read().contains(hp))
             && reserved_ports.iter().all(port_is_free)
         {
@@ -1542,16 +1541,19 @@ impl<P: NodePorts> Node<P> {
             if 2 < process_cnt {
                 // At least 3 processes is running, 'el'/'cl_bn'/'cl_vc'
                 return Err(eg!(
-                    "This node({}, {}) may be running, {} processes detected.",
+                    "This node({}, {}, {}) may be running, {} processes detected.",
                     self.id,
+                    self.host.host_id(),
                     self.home,
                     process_cnt
                 ));
             } else {
                 println!(
-                    "This node({}, {}) may be in a partial failed state,
-                less than {} live processes detected, enter the restart process.",
-                    self.id, self.home, process_cnt
+                    "This node({}, {}, {}) may be in a partial failed state, less than {} live processes detected, enter the restart process.",
+                    self.id,
+                    self.host.host_id(),
+                    self.home,
+                    process_cnt
                 );
                 // Probably a partial failure
                 self.stop(env, false).c(d!())?;
@@ -1587,16 +1589,22 @@ impl<P: NodePorts> Node<P> {
 
     // - Release all occupied ports
     // - Remove all files related to this node
+    #[inline(always)]
     fn clean_up(&self) -> Result<()> {
-        for port in self.ports.get_port_list().iter() {
-            PC.write().remove(&format!("{},{}", &self.host.addr, port));
-        }
+        self.drop_ports();
 
         // Remove all related files
         Remote::from(&self.host)
             .exec_cmd(&format!("rm -rf {}", &self.home))
             .c(d!())
             .map(|_| ())
+    }
+
+    #[inline(always)]
+    fn drop_ports(&self) {
+        for port in self.ports.get_port_list().iter() {
+            PC.write().remove(&format!("{},{}", &self.host.addr, port));
+        }
     }
 
     // Migrate this node to another host,
@@ -1658,7 +1666,12 @@ where
     KickHosts((Vec<HostID>, bool /*force or not*/)),
     Protect,
     Unprotect,
-    Start(Option<BTreeSet<NodeID>>),
+    Start(
+        (
+            Option<BTreeSet<NodeID>>,
+            bool, /*ignore failed cases or not*/
+        ),
+    ),
     StartAll,
     Stop(
         (

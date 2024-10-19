@@ -22,7 +22,6 @@ cleanall: clean
 	git clean -fdx
 
 update:
-	rustup update stable
 	cargo update --verbose
 
 doc:

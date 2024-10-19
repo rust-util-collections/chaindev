@@ -124,14 +124,16 @@ impl<'a> Remote<'a> {
 
     pub fn get_occupied_ports(&self) -> Result<BTreeSet<u16>> {
         self.exec_cmd(
-            r#"if [[ "Linux" = `uname -s` ]]; then ss -ntua | sed 's/ \+/ /g' | cut -d ' ' -f 5 | grep -o '[0-9]\+$'; elif [[ "Darwin" = `uname -s` ]]; then lsof -nP -i TCP | grep -o ':[0-9]\+[ -]'; else exit 1; fi"#,
+            r#"if [[ "Linux" = `uname -s` ]]; then ss -na | sed 's/ \+/ /g' | cut -d ' ' -f 5 | grep -o '[0-9]\+$'; elif [[ "Darwin" = `uname -s` ]]; then lsof -nP -i TCP | grep -o ':[0-9]\+[ -]'; else exit 1; fi"#,
         )
-        .c(d!())?
-        .lines()
-            .map(|l| l.trim_matches(|c| c == ':' || c == '-' || c == ' '))
-        .filter(|p| !p.is_empty())
-        .map(|p| p.trim().parse::<u16>().c(d!()))
-        .collect::<Result<BTreeSet<u16>>>()
+        .c(d!())
+        .map(|s| {
+            s.lines()
+                .map(|l| l.trim_matches(|c| c == ':' || c == '-' || c == ' '))
+                .filter(|p| !p.is_empty())
+                .flat_map(|p| p.trim().parse::<u16>().ok())
+                .collect::<BTreeSet<u16>>()
+        })
     }
 
     pub fn get_hosts_weight(&self) -> Result<u64> {

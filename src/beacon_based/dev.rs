@@ -114,22 +114,24 @@ where
             Op::Unprotect => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start(node_ids) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| {
-                    if let Some(ids) = node_ids {
-                        for (i, id) in ids.iter().copied().enumerate() {
-                            env.launch(Some(id)).c(d!())?;
-                            println!(
-                                "The {}th node has been started, NodeID: {id}",
-                                1 + i
-                            );
+            Op::Start((node_ids, ignore_failed)) => {
+                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|mut env| {
+                        if let Some(ids) = node_ids {
+                            for (i, id) in ids.iter().copied().enumerate() {
+                                env.launch(Some(id), *ignore_failed).c(d!())?;
+                                println!(
+                                    "The {}th node has been started, NodeID: {id}",
+                                    1 + i
+                                );
+                            }
+                            Ok(())
+                        } else {
+                            env.launch(None, *ignore_failed).c(d!())
                         }
-                        Ok(())
-                    } else {
-                        env.start().c(d!())
-                    }
-                }),
+                    })
+            }
             Op::StartAll => Env::<Data, Ports, Cmds>::start_all().c(d!()),
             Op::Stop((node_ids, force)) => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
@@ -369,7 +371,7 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.start().c(d!()))
+            .and_then(|_| env.launch(None, false).c(d!()))
     }
 
     // Destroy all nodes
@@ -416,7 +418,7 @@ where
         self.alloc_resources(id, kind, mark)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.start_node(id).c(d!()))
+            .and_then(|_| self.launch(Some(id), false).c(d!()))
             .map(|_| id)
     }
 
@@ -443,7 +445,7 @@ where
         };
 
         if self.meta.fuhrers.contains_key(&id) {
-            return Err(eg!("Node-[{id}] is a fuhrer node, deny to kick"));
+            return Err(eg!("Node-[{}] is a fuhrer node, deny to kick", id));
         }
 
         self.meta
@@ -468,18 +470,8 @@ where
         self.write_cfg().c(d!())
     }
 
-    #[inline(always)]
-    fn start(&mut self) -> Result<()> {
-        self.launch(None).c(d!())
-    }
-
-    #[inline(always)]
-    fn start_node(&mut self, n: NodeID) -> Result<()> {
-        self.launch(Some(n)).c(d!())
-    }
-
     // Start one or all nodes of the ENV
-    fn launch(&mut self, n: Option<NodeID>) -> Result<()> {
+    fn launch(&mut self, n: Option<NodeID>, ignore_failed: bool) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .fuhrers
@@ -494,7 +486,10 @@ where
         for i in ids.iter() {
             if let Some(n) = self.meta.fuhrers.get(i).or_else(|| self.meta.nodes.get(i))
             {
-                n.start(self).c(d!())?;
+                let r = n.start(self).c(d!());
+                if !ignore_failed {
+                    r?;
+                }
             } else {
                 return Err(eg!("not exist"));
             }
@@ -509,7 +504,7 @@ where
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .start()
+                .launch(None, false)
                 .c(d!())?;
         }
         Ok(())
@@ -628,7 +623,7 @@ where
         let home = format!("{}/{}", &self.meta.home, id);
         fs::create_dir_all(&home).c(d!())?;
 
-        let ports = self.alloc_ports(&kind).c(d!())?;
+        let ports = Self::alloc_ports(&kind).c(d!())?;
 
         // 2.
         let node = Node {
@@ -650,13 +645,12 @@ where
     }
 
     // Global alloctor for ports
-    fn alloc_ports(&self, node_kind: &NodeKind) -> Result<Ports> {
+    fn alloc_ports(node_kind: &NodeKind) -> Result<Ports> {
         let reserved_ports = Ports::reserved();
 
         let mut res = vec![];
 
         if matches!(node_kind, NodeKind::Fuhrer)
-            && ENV_NAME_DEFAULT == self.meta.name.as_ref()
             && reserved_ports
                 .iter()
                 .copied()
@@ -907,8 +901,26 @@ impl<Ports: NodePorts> Node<Ports> {
             .trim()
             .parse::<u64>()
             .c(d!())?;
+
         if 0 < process_cnt {
-            return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
+            if 2 < process_cnt {
+                // At least 3 processes is running, 'el'/'cl_bn'/'cl_vc'
+                return Err(eg!(
+                    "This node({}, {}) may be running, {} processes detected.",
+                    self.id,
+                    self.home,
+                    process_cnt
+                ));
+            } else {
+                println!(
+                    "This node({}, {}) may be in a partial failed state, less than {} live processes detected, enter the restart process.",
+                    self.id,
+                    self.home,
+                    process_cnt
+                );
+                // Probably a partial failure
+                self.stop(env, false).c(d!())?;
+            }
         }
 
         match unsafe { unistd::fork() } {
@@ -1003,7 +1015,12 @@ where
     ),
     Protect,
     Unprotect,
-    Start(Option<BTreeSet<NodeID>>),
+    Start(
+        (
+            Option<BTreeSet<NodeID>>,
+            bool, /*ignore failed cases or not*/
+        ),
+    ),
     StartAll,
     Stop(
         (

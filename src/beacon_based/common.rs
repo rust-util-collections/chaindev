@@ -15,7 +15,7 @@ pub const MGMT_OPS_LOG: &str = "mgmt.log";
 
 /// Allocate ports based on this trait
 pub trait NodePorts:
-    Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
+    Clone + Default + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
 {
     /// Reserved ports defined both
     /// by the Beacon and the Execution Client
