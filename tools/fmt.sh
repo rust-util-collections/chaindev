@@ -15,6 +15,9 @@ EXEC_PATH=$(echo ${EXEC_PATH} | sed 's@/\./@/@g' | sed 's@/\.*$@@')
 cd $EXEC_PATH || exit 1
 #################################################
 
+export LC_ALL=en_US.UTF-8 # perl
+export LANGUAGE=en_US.UTF-8 # perl
+
 for file in $(find .. -path "../target" -a -prune \
     -o -type f \
     -o -name "*.rs" \
@@ -46,11 +49,11 @@ for file in $(find .. -path "../target" -a -prune \
     perl -pi -e 's/。 */. /g' $file
     perl -pi -e 's/、 +/、/g' $file
 
-    perl -pi -e 's/, +/, /g' $file
-    perl -pi -e 's/\. +/. /g' $file
+    perl -pi -e 's/, +(\S)/, $1/g' $file
+    perl -pi -e 's/\. +(\S)/. $1/g' $file
 
     perl -pi -e 's/\t/    /g' $file
-    perl -pi -e 's/ +$//g' $file
+    echo $file | grep -c '\.md$'>/dev/null || perl -pi -e 's/ +$//g' $file
 done
 
-cargo fmt
+cargo +nightly fmt
