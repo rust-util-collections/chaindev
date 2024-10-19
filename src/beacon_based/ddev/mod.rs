@@ -1446,7 +1446,7 @@ where
         } else {
             let mut cnter = 5000;
             while reserved.len() > res.len() {
-                let p = 9999 + random::<u16>() % (65535 - 21111);
+                let p = 10000 + random::<u16>() % (65535 - 21111);
                 let hp = format!("{},{}", &host.addr, p);
                 if !res.contains(&p)
                     && !reserved_ports.contains(&p)
@@ -1546,7 +1546,23 @@ impl<P: NodePorts> Node<P> {
             .parse::<u64>()
             .c(d!())?;
         if 0 < process_cnt {
-            return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
+            if 2 < process_cnt {
+                // At least 3 processes is running, 'el'/'cl_bn'/'cl_vc'
+                return Err(eg!(
+                    "This node({}, {}) may be running, {} processes detected.",
+                    self.id,
+                    self.home,
+                    process_cnt
+                ));
+            } else {
+                println!(
+                    "This node({}, {}) may be in a partial failed state,
+                less than {} live processes detected, enter the restart process.",
+                    self.id, self.home, process_cnt
+                );
+                // Probably a partial failure
+                self.stop(env, false).c(d!())?;
+            }
         }
 
         let cmd = env.node_cmdline_generator.cmd_for_start(self, &env.meta);
