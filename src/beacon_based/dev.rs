@@ -160,6 +160,9 @@ where
                     })
             }
             Op::ShowAll => Env::<Data, Ports, Cmds>::show_all().c(d!()),
+            Op::DebugFailedNodes => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|env| env.debug_failed_nodes().c(d!())),
             Op::List => Env::<Data, Ports, Cmds>::list_all().c(d!()),
             Op::Custom(custom_op) => custom_op.exec(&self.name).c(d!()),
             Op::Nil(_) => unreachable!(),
@@ -595,6 +598,26 @@ where
         Ok(())
     }
 
+    fn debug_failed_nodes(&self) -> Result<()> {
+        let mut failed_cases = vec![];
+
+        for n in self.meta.nodes.values().chain(self.meta.fuhrers.values()) {
+            let cmd = self.node_cmdline_generator.cmd_cnt_running(n, &self.meta);
+            let process_cnt = cmd::exec_output(&cmd)
+                .c(d!(&cmd))?
+                .trim()
+                .parse::<u64>()
+                .c(d!())?;
+            if 3 > process_cnt {
+                failed_cases.push(n.id);
+            }
+        }
+
+        serde_json::to_string_pretty(&failed_cases)
+            .c(d!())
+            .map(|s| println!("{s}"))
+    }
+
     // list the names of all existing ENVs
     fn list_all() -> Result<()> {
         let list = Self::get_env_list().c(d!())?;
@@ -906,16 +929,14 @@ impl<Ports: NodePorts> Node<Ports> {
             if 2 < process_cnt {
                 // At least 3 processes is running, 'el'/'cl_bn'/'cl_vc'
                 return Err(eg!(
-                    "This node({}, {}) may be running, {} processes detected.",
+                    "This node(ID {}) may be running, {} processes detected.",
                     self.id,
-                    self.home,
                     process_cnt
                 ));
             } else {
                 println!(
-                    "This node({}, {}) may be in a partial failed state, less than {} live processes detected, enter the restart process.",
+                    "This node(ID {}) may be in a partial failed state, less than 3 live processes({}) detected, enter the restart process.",
                     self.id,
-                    self.home,
                     process_cnt
                 );
                 // Probably a partial failure
@@ -1031,6 +1052,7 @@ where
     StopAll(bool /*force or not*/),
     Show,
     ShowAll,
+    DebugFailedNodes,
     List,
     Custom(Ops),
     Nil(Ports),

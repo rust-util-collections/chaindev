@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+#### v0.3x.x ~ v0.4x.x
+
+- Add beacon(ETH2) based supports
+
 #### v0.20.x
 
 - Support double addresses

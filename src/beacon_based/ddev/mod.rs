@@ -160,6 +160,9 @@ where
                 env.show();
             }),
             Op::ShowAll => Env::<C, P, S>::show_all().c(d!()),
+            Op::DebugFailedNodes => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|env| env.debug_failed_nodes().c(d!())),
             Op::List => Env::<C, P, S>::list_all().c(d!()),
             Op::HostPutFile {
                 local_path,
@@ -1047,6 +1050,62 @@ where
         Ok(())
     }
 
+    fn debug_failed_nodes(&self) -> Result<()> {
+        let mut failed_cases = map! {B};
+        let mut errlist: Vec<Box<dyn RucError>> = vec![];
+
+        for nodes in self
+            .meta
+            .nodes
+            .values()
+            .chain(self.meta.fuhrers.values())
+            .collect::<Vec<_>>()
+            .chunks(24)
+        {
+            thread::scope(|s| {
+                nodes
+                    .iter()
+                    .map(|n| {
+                        let cmd =
+                            self.node_cmdline_generator.cmd_cnt_running(n, &self.meta);
+                        s.spawn(move || {
+                            let process_cnt = Remote::from(&n.host)
+                                .exec_cmd(&cmd)
+                                .c(d!())?
+                                .trim()
+                                .parse::<u64>()
+                                .c(d!())?;
+                            if 3 > process_cnt {
+                                Ok((n, true)) // failed status
+                            } else {
+                                Ok((n, false)) // well status
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|hdr| hdr.join())
+                    .for_each(|ret| match ret {
+                        Ok((n, failed)) => {
+                            if failed {
+                                failed_cases
+                                    .entry(n.host.host_id())
+                                    .or_insert_with(Vec::new)
+                                    .push(n.id);
+                            }
+                        }
+                        Err(e) => {
+                            errlist.push(e);
+                        }
+                    });
+            })
+        }
+
+        println!("{}", serde_json::to_string_pretty(&failed_cases).c(d!())?);
+
+        check_errlist!(errlist)
+    }
+
     // List the names of all existing ENVs
     fn list_all() -> Result<()> {
         let list = Self::get_env_list().c(d!())?;
@@ -1541,18 +1600,16 @@ impl<P: NodePorts> Node<P> {
             if 2 < process_cnt {
                 // At least 3 processes is running, 'el'/'cl_bn'/'cl_vc'
                 return Err(eg!(
-                    "This node({}, {}, {}) may be running, {} processes detected.",
+                    "This node(ID {}, HOST {}) may be running, {} processes detected.",
                     self.id,
                     self.host.host_id(),
-                    self.home,
                     process_cnt
                 ));
             } else {
                 println!(
-                    "This node({}, {}, {}) may be in a partial failed state, less than {} live processes detected, enter the restart process.",
+                    "This node(ID {}, HOST {}) may be in a partial failed state, less than 3 live processes({}) detected, enter the restart process.",
                     self.id,
                     self.host.host_id(),
-                    self.home,
                     process_cnt
                 );
                 // Probably a partial failure
@@ -1682,6 +1739,7 @@ where
     StopAll(bool /*force or not*/),
     Show,
     ShowAll,
+    DebugFailedNodes,
     List,
     HostPutFile {
         local_path: String,

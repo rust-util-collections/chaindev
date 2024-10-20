@@ -43,8 +43,9 @@ impl fmt::Display for HostAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}|{}",
+            "{}{}{}",
             self.local_ip,
+            alt!(self.ext_ip.is_some(), "|", ""),
             self.ext_ip.as_deref().unwrap_or_default()
         )
     }
