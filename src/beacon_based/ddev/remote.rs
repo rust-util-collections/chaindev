@@ -139,7 +139,7 @@ impl<'a> Remote<'a> {
     pub fn get_hosts_weight(&self) -> Result<u64> {
         let cpunum = self
             .exec_cmd(
-            r#"if [[ "Linux" = `uname -s` ]]; then grep -c processor /proc/cpuinfo; elif [[ "Darwin" = `uname -s` ]]; then sysctl -a | grep 'machdep.cpu.core_count' | grep -o '[0-9]\+$'; else exit 1; fi"#,
+            r#"if [[ "Linux" = `uname -s` ]]; then nproc; elif [[ "Darwin" = `uname -s` ]]; then sysctl -a | grep 'machdep.cpu.core_count' | grep -o '[0-9]\+$'; else exit 1; fi"#,
                 )
             .c(d!())?
             .trim()
