@@ -28,6 +28,9 @@ pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, HostID, Hosts}
 static GLOBAL_BASE_DIR: LazyLock<String> =
     LazyLock::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
 
+static OCCUPIED_PORTS: LazyLock<RwLock<BTreeMap<HostID, BTreeSet<u16>>>> =
+    LazyLock::new(|| RwLock::new(BTreeMap::new()));
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct EnvCfg<C, P, U>
@@ -850,8 +853,10 @@ where
                     .get_mut(id)
                     .or_else(|| self.meta.fuhrers.get_mut(id))
                 {
-                    n.drop_ports();
-                    n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+                    if !Self::check_node_ports(n).c(d!())? {
+                        n.drop_ports();
+                        n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+                    }
 
                     // todo: update ports
                     nodes.push(n.clone());
@@ -866,8 +871,10 @@ where
                 .values_mut()
                 .chain(self.meta.nodes.values_mut())
             {
-                n.drop_ports();
-                n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+                if !Self::check_node_ports(n).c(d!())? {
+                    n.drop_ports();
+                    n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+                }
 
                 // todo: update ports
                 nodes.push(n.clone());
@@ -1457,10 +1464,30 @@ where
         Ok(h)
     }
 
-    fn alloc_ports(node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
-        static OCCUPIED_PORTS: LazyLock<RwLock<BTreeMap<HostID, BTreeSet<u16>>>> =
-            LazyLock::new(|| RwLock::new(BTreeMap::new()));
+    // Return `true` if all existing ports are still ok
+    fn check_node_ports(n: &Node<P>) -> Result<bool> {
+        let remote = Remote::from(&n.host);
 
+        let host_id = n.host.host_id();
+
+        let occupied = {
+            // `cloned`: avoid `dead lock`
+            let cache = OCCUPIED_PORTS.read().get(&host_id).cloned();
+            if let Some(ports) = cache {
+                ports
+            } else {
+                let ports = remote.get_occupied_ports().c(d!())?;
+                OCCUPIED_PORTS.write().insert(host_id, ports.clone());
+                ports
+            }
+        };
+
+        let port_is_free = |p: &u16| !occupied.contains(p);
+
+        Ok(n.ports.get_port_list().iter().all(port_is_free))
+    }
+
+    fn alloc_ports(node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
         let reserved_ports = P::reserved();
         let reserved = reserved_ports
             .iter()
