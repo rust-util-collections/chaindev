@@ -1821,7 +1821,7 @@ where
     pub genesis_vkeys_tgz_path: Option<String>,
 
     /// How many initial nodes should be created,
-    /// including the fuhrer node
+    /// exclude the fuhrer node
     pub initial_node_num: u8,
 
     /// Set nodes as ArchiveNode by default
