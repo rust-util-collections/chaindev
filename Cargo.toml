@@ -1,6 +1,6 @@
 [package]
 name = "chaindev"
-version = "0.42.8"
+version = "0.43.0"
 edition = "2021"
 authors = ["hui.fan@mail.ru"]
 description = "Powerful development and testing utils for blockchain developers."

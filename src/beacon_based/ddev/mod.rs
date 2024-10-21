@@ -133,7 +133,7 @@ where
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start((node_ids, ignore_failed)) => {
+            Op::Start((node_ids, ignore_failed, realloc_ports)) => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
@@ -141,10 +141,11 @@ where
                             env.start(
                                 Some(ids.iter().copied().collect()),
                                 *ignore_failed,
+                                *realloc_ports,
                             )
                             .c(d!())
                         } else {
-                            env.start(None, *ignore_failed).c(d!())
+                            env.start(None, *ignore_failed, *realloc_ports).c(d!())
                         }
                     })
             }
@@ -528,7 +529,7 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.start(None, false).c(d!()))
+            .and_then(|_| env.start(None, false, false).c(d!()))
     }
 
     // Destroy all nodes
@@ -638,7 +639,7 @@ where
     ) -> Result<()> {
         self.push_nodes_data(node_kind, node_mark, host_addr, num)
             .c(d!())
-            .and_then(|ids| self.start(Some(ids), false).c(d!()))
+            .and_then(|ids| self.start(Some(ids), false, false).c(d!()))
     }
 
     fn push_nodes_data(
@@ -842,6 +843,7 @@ where
         &mut self,
         ids: Option<BTreeSet<NodeID>>,
         ignore_failed: bool,
+        realloc_ports: bool,
     ) -> Result<()> {
         let mut nodes = vec![];
 
@@ -853,12 +855,11 @@ where
                     .get_mut(id)
                     .or_else(|| self.meta.fuhrers.get_mut(id))
                 {
-                    if !Self::check_node_ports(n).c(d!())? {
+                    if realloc_ports && !Self::check_node_ports(n).c(d!())? {
                         n.drop_ports();
                         n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
                     }
 
-                    // todo: update ports
                     nodes.push(n.clone());
                 } else {
                     return Err(eg!("The node(id: {}) does not exist", id));
@@ -871,7 +872,7 @@ where
                 .values_mut()
                 .chain(self.meta.nodes.values_mut())
             {
-                if !Self::check_node_ports(n).c(d!())? {
+                if realloc_ports && !Self::check_node_ports(n).c(d!())? {
                     n.drop_ports();
                     n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
                 }
@@ -931,7 +932,7 @@ where
             Self::load_env_by_name(env)
                 .c(d!())?
                 .c(d!("BUG: env not found!"))?
-                .start(None, false)
+                .start(None, false, false)
                 .c(d!())?;
         }
         Ok(())
@@ -1160,7 +1161,7 @@ where
     #[inline(always)]
     fn apply_resources(
         &self,
-        nodes_info: &[(NodeID, HostMeta)],
+        nodes_info: &[((NodeID, HostMeta), P)],
         kind: NodeKind,
         mark: Option<NodeMark>,
     ) -> Result<Vec<Node<P>>> {
@@ -1170,7 +1171,7 @@ where
             thread::scope(|s| {
                 ni.iter()
                     .cloned()
-                    .map(|(id, host)| {
+                    .map(|((id, host), ports)| {
                         s.spawn(move || {
                             let home = format!("{}/{}", self.meta.home, id);
                             Remote::from(&host)
@@ -1185,7 +1186,7 @@ where
                                     kind,
                                     mark,
                                     host,
-                                    ports: P::default(), //  mock
+                                    ports,
                                 })
                         })
                     })
@@ -1400,20 +1401,24 @@ where
             })
     }
 
-    // Alloc hosts for new nodes,
-    // ports are allocated each time the node is started
+    // Alloc hosts for new nodes
     fn alloc_hosts_ports(
         &mut self,
         ids: &[NodeID],
         node_kind: &NodeKind,
         host_addr: Option<&HostAddr>,
-    ) -> Result<Vec<(NodeID, HostMeta)>> {
+    ) -> Result<Vec<((NodeID, HostMeta), P)>> {
         let mut hosts = vec![];
+        let mut ports = vec![];
+
         for _ in ids.iter() {
-            hosts.push(self.alloc_host(node_kind, host_addr).c(d!())?);
+            let h = self.alloc_host(node_kind, host_addr).c(d!())?;
+            let p = Self::alloc_ports(node_kind, &h).c(d!())?;
+            hosts.push(h);
+            ports.push(p);
         }
 
-        Ok(ids.iter().copied().zip(hosts).collect())
+        Ok(ids.iter().copied().zip(hosts).zip(ports).collect())
     }
 
     fn alloc_host(
@@ -1754,6 +1759,7 @@ where
         (
             Option<BTreeSet<NodeID>>,
             bool, /*ignore failed cases or not*/
+            bool, /*try to realloc ports or not*/
         ),
     ),
     StartAll,
