@@ -3,7 +3,7 @@ use crate::{
         host::{Host, HostMeta, Hosts},
         Env, EnvMeta, Node, NodeCmdGenerator, NodePorts,
     },
-    check_errlist,
+    check_errlist, NodeID,
 };
 use ruc::{ssh, *};
 use serde::{Deserialize, Serialize};
@@ -359,6 +359,7 @@ pub fn exec_cmds_on_hosts(
 
 pub fn collect_files_from_nodes<C, P, S>(
     env: &Env<C, P, S>,
+    ids: Option<&[NodeID]>,
     files: &[&str], // file paths relative to the node home
     local_base_dir: Option<&str>,
 ) -> Result<()>
@@ -377,6 +378,7 @@ where
         .fuhrers
         .values()
         .chain(env.meta.nodes.values())
+        .filter(|n| ids.map(|ids| ids.contains(&n.id)).unwrap_or(true))
         .collect::<Vec<_>>()
         .chunks(12)
         .enumerate()
@@ -440,6 +442,7 @@ where
 
 pub fn collect_tgz_from_nodes<'a, C, P, S>(
     env: &'a Env<C, P, S>,
+    ids: Option<&[NodeID]>,
     paths: &'a [&'a str], // paths relative to the node home
     local_base_dir: Option<&'a str>,
 ) -> Result<()>
@@ -458,6 +461,7 @@ where
         .fuhrers
         .values()
         .chain(env.meta.nodes.values())
+        .filter(|n| ids.map(|ids| ids.contains(&n.id)).unwrap_or(true))
         .collect::<Vec<_>>()
         .chunks(12)
         .enumerate()

@@ -1059,6 +1059,17 @@ where
     }
 
     fn debug_failed_nodes(&self) -> Result<()> {
+        let (failed_cases, errlist) = self.collect_failed_nodes();
+        serde_json::to_string_pretty(&failed_cases)
+            .c(d!())
+            .map(|s| println!("{s}"))?;
+        check_errlist!(errlist)
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn collect_failed_nodes(
+        &self,
+    ) -> (BTreeMap<HostID, Vec<NodeID>>, Vec<Box<dyn RucError>>) {
         let mut failed_cases = map! {B};
         let mut errlist: Vec<Box<dyn RucError>> = vec![];
 
@@ -1109,9 +1120,7 @@ where
             })
         }
 
-        println!("{}", serde_json::to_string_pretty(&failed_cases).c(d!())?);
-
-        check_errlist!(errlist)
+        (failed_cases, errlist)
     }
 
     // List the names of all existing ENVs
