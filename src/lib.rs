@@ -33,9 +33,6 @@ pub use beacon_based::dev as beacon_dev;
 #[cfg(feature = "beacon_based")]
 pub use beacon_based::ddev as beacon_ddev;
 
-#[cfg(feature = "beacon_based")]
-pub use beacon_based::ddev::{host, remote};
-
 /////////////////////////////////////////////////////////////////////
 
 #[macro_export]

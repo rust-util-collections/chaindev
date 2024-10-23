@@ -1,3 +1,6 @@
+pub mod hosts;
+pub mod remote;
+
 use ruc::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -61,3 +64,29 @@ impl CustomOps for () {
         Ok(())
     }
 }
+
+pub trait NodeCmdGenerator<N, E>:
+    Clone + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
+{
+    /// Return: whether the target node is running
+    fn cmd_cnt_running(&self, node: &N, env_meta: &E) -> String;
+
+    /// Return: the custom cmd to start the node
+    fn cmd_for_start(&self, node: &N, env_meta: &E) -> String;
+
+    /// Return: the custom cmd to stop the node
+    fn cmd_for_stop(&self, node: &N, env_meta: &E, force: bool) -> String;
+
+    /// Return: a `FnOnce` containing the full logic for the migration
+    fn cmd_for_migrate(
+        &self,
+        _src_node: &N,
+        _dst_node: &N,
+        _env_meta: &E,
+    ) -> impl FnOnce() -> Result<()> {
+        || Err(eg!("Unimplemented yet !!"))
+    }
+}
+
+/////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////

@@ -2,14 +2,15 @@
 //! Distributed version
 //!
 
-pub mod host;
 pub mod remote;
 
 use crate::check_errlist;
-use host::HostMeta;
+use crate::common::{
+    hosts::{Host, HostAddr, HostID, HostMeta, Hosts},
+    remote::{exec_cmds_on_hosts, get_file_from_hosts, put_file_to_hosts, Remote},
+};
 use parking_lot::RwLock;
 use rand::random;
-use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -23,7 +24,6 @@ use std::{
 use vsdb::MapxOrd;
 
 pub use super::common::*;
-pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, HostID, Hosts};
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
     LazyLock::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
@@ -174,7 +174,7 @@ where
                 hosts,
             } => {
                 if let Some(hosts) = hosts {
-                    remote::put_file_to_hosts(
+                    put_file_to_hosts(
                         hosts,
                         local_path.as_str(),
                         remote_path.as_deref(),
@@ -198,7 +198,7 @@ where
                 hosts,
             } => {
                 if let Some(hosts) = hosts {
-                    remote::get_file_from_hosts(
+                    get_file_from_hosts(
                         hosts,
                         remote_path.as_str(),
                         local_base_dir.as_deref(),
@@ -222,12 +222,8 @@ where
                 hosts,
             } => {
                 if let Some(hosts) = hosts {
-                    remote::exec_cmds_on_hosts(
-                        hosts,
-                        cmd.as_deref(),
-                        script_path.as_deref(),
-                    )
-                    .c(d!())
+                    exec_cmds_on_hosts(hosts, cmd.as_deref(), script_path.as_deref())
+                        .c(d!())
                 } else {
                     Env::<C, P, S>::load_env_by_cfg(self)
                         .c(d!())
@@ -488,11 +484,9 @@ where
                 hosts
                     .iter()
                     .map(|h| {
+                        let remote = Remote::from(*h);
                         let cmd = format!("mkdir -p {}", &env.meta.home);
-                        s.spawn(move || {
-                            let remote = Remote::from(*h);
-                            info!(remote.exec_cmd(&cmd), &h.meta.addr)
-                        })
+                        s.spawn(move || remote.exec_cmd(&cmd).c(d!(&h.meta.addr)))
                     })
                     .collect::<Vec<_>>()
                     .into_iter()
@@ -594,7 +588,7 @@ where
                     .map(|h| {
                         let remote = Remote::from(*h);
                         let cmd = format!("rm -rf {}", &self.meta.home);
-                        s.spawn(move || info!(remote.exec_cmd(&cmd), &h.meta.addr))
+                        s.spawn(move || remote.exec_cmd(&cmd).c(d!(&h.meta.addr)))
                     })
                     .collect::<Vec<_>>()
                     .into_iter()
@@ -1582,7 +1576,7 @@ where
         local_path: &str,
         remote_path: Option<&str>,
     ) -> Result<()> {
-        remote::put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
+        put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
     }
 
     #[inline(always)]
@@ -1591,8 +1585,7 @@ where
         remote_path: &str,
         local_base_dir: Option<&str>,
     ) -> Result<()> {
-        remote::get_file_from_hosts(&self.meta.hosts, remote_path, local_base_dir)
-            .c(d!())
+        get_file_from_hosts(&self.meta.hosts, remote_path, local_base_dir).c(d!())
     }
 
     #[inline(always)]
@@ -1601,7 +1594,7 @@ where
         cmd: Option<&str>,
         script_path: Option<&str>,
     ) -> Result<()> {
-        remote::exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
+        exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
     }
 
     #[inline(always)]

@@ -2,13 +2,14 @@
 //! Distributed version
 //!
 
-mod host;
-mod remote;
+pub mod remote;
 
 use crate::check_errlist;
-use host::{HostMeta, HostOS};
+use crate::common::{
+    hosts::{HostExpression, HostExpressionRef, HostID, HostMeta, Hosts},
+    remote::{exec_cmds_on_hosts, get_file_from_hosts, put_file_to_hosts, Remote},
+};
 use rand::random;
-use remote::Remote;
 use ruc::{cmd, *};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -28,7 +29,6 @@ use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 use vsdb::MapxOrd;
 
 pub use super::common::*;
-pub use host::{Host, HostAddr, HostExpression, HostExpressionRef, Hosts};
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
     LazyLock::new(|| format!("{}/__D_DEV__", &*BASE_DIR));
@@ -58,7 +58,7 @@ where
 {
     pub fn exec<S>(&self, s: S) -> Result<()>
     where
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
             Op::Create(envopts) => Env::<C, P, S>::create(self, envopts, s).c(d!()),
@@ -66,25 +66,21 @@ where
                 .c(d!())
                 .and_then(|env| env.destroy(*force).c(d!())),
             Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
-            Op::PushNode(host_addr) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::PushNode(host) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.push_node(host_addr.as_ref()).c(d!())),
-            Op::MigrateNode((node_id, host_addr)) => {
-                Env::<C, P, S>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|mut env| {
-                        env.migrate_node(*node_id, host_addr.as_ref()).c(d!())
-                    })
-            }
+                .and_then(|mut env| env.push_node(host.as_ref()).c(d!())),
+            Op::MigrateNode((node_id, host)) => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| env.migrate_node(*node_id, host.as_ref()).c(d!())),
             Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.kick_node(*node_id).c(d!())),
             Op::PushHost(host_expression) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_host(host_expression.as_str()).c(d!())),
-            Op::KickHost((host_addr, force)) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickHost((host, force)) => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_host(host_addr, *force).c(d!())),
+                .and_then(|mut env| env.kick_host(host, *force).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
@@ -110,7 +106,7 @@ where
                 hosts,
             } => {
                 if let Some(hosts) = hosts {
-                    remote::put_file_to_hosts(
+                    put_file_to_hosts(
                         hosts,
                         local_path.as_str(),
                         remote_path.as_deref(),
@@ -134,7 +130,7 @@ where
                 hosts,
             } => {
                 if let Some(hosts) = hosts {
-                    remote::get_file_from_hosts(
+                    get_file_from_hosts(
                         hosts,
                         remote_path.as_str(),
                         local_base_dir.as_deref(),
@@ -158,12 +154,8 @@ where
                 hosts,
             } => {
                 if let Some(hosts) = hosts {
-                    remote::exec_cmds_on_hosts(
-                        hosts,
-                        cmd.as_deref(),
-                        script_path.as_deref(),
-                    )
-                    .c(d!())
+                    exec_cmds_on_hosts(hosts, cmd.as_deref(), script_path.as_deref())
+                        .c(d!())
                 } else {
                     Env::<C, P, S>::load_env_by_cfg(self)
                         .c(d!())
@@ -172,21 +164,6 @@ where
                                 .c(d!())
                         })
                 }
-            }
-            Op::NodeCollectLogs { local_base_dir } => {
-                Env::<C, P, S>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|env| {
-                        env.nodes_collect_logs(local_base_dir.as_deref()).c(d!())
-                    })
-            }
-            Op::NodeCollectConfigurations { local_base_dir } => {
-                Env::<C, P, S>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|env| {
-                        env.nodes_collect_configurations(local_base_dir.as_deref())
-                            .c(d!())
-                    })
             }
             Op::Custom(custom_op) => custom_op.exec(&self.name).c(d!()),
             Op::Nil(_) => unreachable!(),
@@ -268,7 +245,7 @@ where
 
     pub fn load_env_by_name<S>(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>>
     where
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read(p) {
@@ -295,20 +272,20 @@ pub struct Env<C, P, S>
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     pub meta: EnvMeta<C, Node<P>>,
     pub is_protected: bool,
 
     #[serde(rename = "node_options_generator")]
-    pub node_opts_generator: S,
+    pub node_cmdline_generator: S,
 }
 
 impl<C, P, S> Env<C, P, S>
 where
     C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     // - Initilize a new env
     // - Create `genesis.json`
@@ -334,15 +311,18 @@ where
                         let cmd = format!("rm -rf {}", &home);
                         thread::spawn(move || {
                             let remote = Remote::from(&h);
-                            info!(remote.exec_cmd(&cmd), &h.meta.addr)
+                            remote.exec_cmd(&cmd).c(d!(&h.meta.addr))
                         })
                     })
                     .collect::<Vec<_>>();
+
                 let errlist = hdrs
                     .into_iter()
                     .flat_map(|h| h.join())
                     .filter(|t| t.is_err())
+                    .map(|e| e.unwrap_err())
                     .collect::<Vec<_>>();
+
                 check_errlist!(errlist)
             }));
         }
@@ -384,7 +364,7 @@ where
                 next_node_id: Default::default(),
             },
             is_protected: true,
-            node_opts_generator: s,
+            node_cmdline_generator: s,
         };
 
         fs::create_dir_all(&env.meta.home).c(d!()).and_then(|_| {
@@ -406,6 +386,7 @@ where
                 .into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>();
             check_errlist!(errlist)
         })?;
@@ -453,6 +434,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -477,6 +459,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -501,8 +484,8 @@ where
         Ok(())
     }
 
-    fn push_node(&mut self, host_addr: Option<&HostAddr>) -> Result<()> {
-        self.push_node_data(NodeKind::Node, host_addr)
+    fn push_node(&mut self, host: Option<&HostID>) -> Result<()> {
+        self.push_node_data(NodeKind::Node, host)
             .c(d!())
             .and_then(|id| self.start(Some(id)).c(d!()))
     }
@@ -510,10 +493,10 @@ where
     fn push_node_data(
         &mut self,
         node_kind: NodeKind,
-        host_addr: Option<&HostAddr>,
+        host: Option<&HostID>,
     ) -> Result<NodeID> {
         let id = self.next_node_id();
-        self.alloc_resources(id, node_kind, host_addr)
+        self.alloc_resources(id, node_kind, host)
             .c(d!())
             .and_then(|_| self.write_cfg().c(d!()))
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
@@ -525,7 +508,7 @@ where
     fn migrate_node(
         &mut self,
         node_id: NodeID,
-        new_host_addr: Option<&HostAddr>,
+        new_host: Option<&HostID>,
     ) -> Result<()> {
         let old_node = self
             .meta
@@ -535,8 +518,8 @@ where
             .c(d!("The target node does not exist"))?
             .clone();
 
-        let new_host_addr = if let Some(addr) = new_host_addr {
-            addr.clone()
+        let new_host = if let Some(id) = new_host {
+            id.clone()
         } else {
             let mut seq = self
                 .meta
@@ -558,16 +541,15 @@ where
             seq.into_iter()
                 .find(|h| h.0.addr != old_node.host.addr)
                 .c(d!("no avaliable hosts left, migrate failed"))
-                .map(|h| h.0)?
-                .addr
+                .map(|h| h.0.host_id())?
         };
 
-        if old_node.host.addr == new_host_addr {
+        if old_node.host.host_id() == new_host {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
         let new_node_id = self
-            .push_node_data(old_node.kind, Some(&new_host_addr))
+            .push_node_data(old_node.kind, Some(&new_host))
             .c(d!())?;
         let new_node = self
             .meta
@@ -577,7 +559,7 @@ where
             .c(d!("BUG"))?;
 
         old_node
-            .migrate(new_node)
+            .migrate(new_node, self)
             .c(d!())
             .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
     }
@@ -612,16 +594,16 @@ where
                 self.meta
                     .hosts
                     .as_mut()
-                    .get_mut(&n.host.addr)
+                    .get_mut(&n.host.host_id())
                     .unwrap()
                     .node_cnt -= 1;
-                n.stop(true).c(d!()).and_then(|_| n.clean().c(d!()))
+                n.stop(self, true).c(d!()).and_then(|_| n.clean().c(d!()))
             })
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
     fn push_host(&mut self, host_expression: HostExpressionRef) -> Result<()> {
-        let mut new_hosts = host::param_parse_hosts(host_expression).c(d!())?;
+        let mut new_hosts = hosts::param_parse_hosts(host_expression).c(d!())?;
         if self
             .meta
             .hosts
@@ -635,7 +617,7 @@ where
         self.write_cfg().c(d!())
     }
 
-    fn kick_host(&mut self, host_addr: &HostAddr, force: bool) -> Result<()> {
+    fn kick_host(&mut self, host: &HostID, force: bool) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -650,7 +632,7 @@ where
                 .fuhrers
                 .values()
                 .chain(self.meta.nodes.values())
-                .filter(|n| &n.host.addr == host_addr)
+                .filter(|n| &n.host.host_id() == host)
                 .map(|n| {
                     dup_buf.insert(n.host.addr.clone());
                     n.id
@@ -662,9 +644,7 @@ where
             for id in nodes_to_migrate.into_iter() {
                 self.migrate_node(id, None).c(d!())?;
             }
-        } else if let Some(n) =
-            self.meta.hosts.as_ref().get(host_addr).map(|h| h.node_cnt)
-        {
+        } else if let Some(n) = self.meta.hosts.as_ref().get(host).map(|h| h.node_cnt) {
             if 0 < n {
                 return Err(eg!("Some nodes are running on this host!"));
             }
@@ -672,7 +652,7 @@ where
             return Err(eg!("The target host does not exist!"));
         }
 
-        self.meta.hosts.as_mut().remove(host_addr);
+        self.meta.hosts.as_mut().remove(host);
         self.write_cfg().c(d!())
     }
 
@@ -718,6 +698,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -750,11 +731,12 @@ where
         let errlist = thread::scope(|s| {
             let hdrs = nodes
                 .into_iter()
-                .map(|n| s.spawn(|| info!(n.stop(force), &n.host.addr)))
+                .map(|n| s.spawn(|| info!(n.stop(self, force), &n.host.addr)))
                 .collect::<Vec<_>>();
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -812,7 +794,7 @@ where
         local_path: &str,
         remote_path: Option<&str>,
     ) -> Result<()> {
-        remote::put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
+        put_file_to_hosts(&self.meta.hosts, local_path, remote_path).c(d!())
     }
 
     #[inline(always)]
@@ -821,23 +803,12 @@ where
         remote_path: &str,
         local_base_dir: Option<&str>,
     ) -> Result<()> {
-        remote::get_file_from_hosts(&self.meta.hosts, remote_path, local_base_dir)
-            .c(d!())
+        get_file_from_hosts(&self.meta.hosts, remote_path, local_base_dir).c(d!())
     }
 
     #[inline(always)]
     fn hosts_exec(&self, cmd: Option<&str>, script_path: Option<&str>) -> Result<()> {
-        remote::exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
-    }
-
-    #[inline(always)]
-    fn nodes_collect_logs(&self, local_base_dir: Option<&str>) -> Result<()> {
-        remote::collect_logs_from_nodes(self, local_base_dir).c(d!())
-    }
-
-    #[inline(always)]
-    fn nodes_collect_configurations(&self, local_base_dir: Option<&str>) -> Result<()> {
-        remote::collect_tgz_from_nodes(self, &["config"], local_base_dir).c(d!())
+        exec_cmds_on_hosts(&self.meta.hosts, cmd, script_path).c(d!())
     }
 
     // 1. Allocate host and ports
@@ -848,9 +819,9 @@ where
         &mut self,
         id: NodeID,
         kind: NodeKind,
-        host_addr: Option<&HostAddr>,
+        host: Option<&HostID>,
     ) -> Result<()> {
-        self.alloc_hosts_ports(&kind, host_addr) // 1.
+        self.alloc_hosts_ports(&kind, host) // 1.
             .c(d!())
             .and_then(|(host, ports)| {
                 self.apply_resources(id, kind, host, ports).c(d!()) // 2. 3. 4.
@@ -889,21 +860,15 @@ where
 
         cfg["proxy_app"] = toml_value(format!(
             "tcp://{}:{}",
-            &host.addr.local,
+            &host.addr.local_ip,
             ports.get_sys_abci()
         ));
 
-        let remote_os = remote.hosts_os().c(d!())?;
-        match remote_os {
-            HostOS::Linux | HostOS::MacOS | HostOS::FreeBSD => {
-                cfg["rpc"]["laddr"] = toml_value(format!(
-                    "tcp://{}:{}",
-                    &host.addr.local,
-                    ports.get_sys_rpc()
-                ));
-            }
-            HostOS::Unknown(os) => return Err(eg!("Unsupported OS: {}!", os)),
-        }
+        cfg["rpc"]["laddr"] = toml_value(format!(
+            "tcp://{}:{}",
+            &host.addr.local_ip,
+            ports.get_sys_rpc()
+        ));
 
         let mut arr = Array::new();
         arr.push("*");
@@ -921,12 +886,12 @@ where
         cfg["p2p"]["max_packet_msg_payload_size"] = toml_value(MB);
         cfg["p2p"]["laddr"] = toml_value(format!(
             "tcp://{}:{}",
-            &host.addr.local,
+            &host.addr.local_ip,
             ports.get_sys_p2p()
         ));
-        if let Some(addr_external) = host.addr.external.as_ref() {
-            cfg["p2p"]["external_address"] =
-                toml_value(format!("{}:{}", &addr_external, ports.get_sys_p2p()));
+        if let Some(addr_ext_ip) = host.addr.ext_ip.as_ref() {
+            cfg["p2p"]["ext_ip_address"] =
+                toml_value(format!("{}:{}", &addr_ext_ip, ports.get_sys_p2p()));
         }
 
         cfg["consensus"]["timeout_propose"] = toml_value("8s");
@@ -1018,9 +983,9 @@ where
                                 format!(
                                     "{}@{}:{}",
                                     &p.tm_id,
-                                    p.host
-                                        .addr
-                                        .connection_addr_x(&n.host.addr.local_id),
+                                    p.host.addr.connection_addr_x(
+                                        &n.host.addr.local_network_id
+                                    ),
                                     p.ports.get_sys_p2p()
                                 )
                             })
@@ -1036,6 +1001,7 @@ where
             hdrs.into_iter()
                 .flat_map(|hdr| hdr.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -1178,6 +1144,7 @@ where
             hdrs.into_iter()
                 .flat_map(|h| h.join())
                 .filter(|t| t.is_err())
+                .map(|e| e.unwrap_err())
                 .collect::<Vec<_>>()
         });
 
@@ -1227,9 +1194,9 @@ where
     fn alloc_hosts_ports(
         &mut self,
         node_kind: &NodeKind,
-        host_addr: Option<&HostAddr>,
+        host_id: Option<&HostID>,
     ) -> Result<(HostMeta, P)> {
-        let host = self.alloc_host(node_kind, host_addr).c(d!())?;
+        let host = self.alloc_host(node_kind, host_id).c(d!())?;
         let ports = self.alloc_ports(node_kind, &host).c(d!())?;
         Ok((host, ports))
     }
@@ -1237,14 +1204,14 @@ where
     fn alloc_host(
         &mut self,
         node_kind: &NodeKind,
-        host_addr: Option<&HostAddr>,
+        host: Option<&HostID>,
     ) -> Result<HostMeta> {
-        if let Some(addr) = host_addr {
+        if let Some(id) = host {
             return self
                 .meta
                 .hosts
                 .as_ref()
-                .get(addr)
+                .get(id)
                 .c(d!())
                 .map(|h| h.meta.clone());
         }
@@ -1272,7 +1239,12 @@ where
             seq.into_iter().next().c(d!()).map(|h| h.0)?
         };
 
-        self.meta.hosts.as_mut().get_mut(&h.addr).unwrap().node_cnt += 1;
+        self.meta
+            .hosts
+            .as_mut()
+            .get_mut(&h.host_id())
+            .unwrap()
+            .node_cnt += 1;
 
         Ok(h)
     }
@@ -1343,64 +1315,50 @@ impl<P: NodePorts> Node<P> {
     fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
     where
         C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if self
-            .is_running(&env.meta.app_bin, &env.meta.tendermint_bin)
+        let cmd = env.node_cmdline_generator.cmd_cnt_running(self, &env.meta);
+        let process_cnt = Remote::from(&self.host)
+            .exec_cmd(&cmd)
             .c(d!())?
-        {
-            return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
+            .trim()
+            .parse::<u64>()
+            .c(d!())?;
+        if 0 < process_cnt {
+            if 2 < process_cnt {
+                // At least 3 processes is running, 'el'/'cl_bn'/'cl_vc'
+                return Err(eg!(
+                    "This node(ID {}, HOST {}) may be running, {} processes detected.",
+                    self.id,
+                    self.host.host_id(),
+                    process_cnt
+                ));
+            } else {
+                println!(
+                    "This node(ID {}, HOST {}) may be in a partial failed state, less than 3 live processes({}) detected, enter the restart process.",
+                    self.id,
+                    self.host.host_id(),
+                    process_cnt
+                );
+                // Probably a partial failure
+                self.stop(env, false).c(d!())?;
+            }
         }
 
-        let (tm_vars, tm_opts) =
-            env.node_opts_generator.tendermint_opts(self, &env.meta);
-        let (app_vars, app_opts) = env.node_opts_generator.app_opts(self, &env.meta);
-        let cmd = format!(
-            r#"
-             chmod +x {tm_bin} {app_bin} || exit 1
-             {tm_vars} {tm_bin} {tm_opts} >>{home}/tendermint.log 2>&1 &
-             {app_vars} {app_bin} {app_opts} >>{home}/app.log 2>&1 &
-            "#,
-            tm_bin = env.meta.tendermint_bin,
-            app_bin = env.meta.app_bin,
-            home = &self.home,
-        );
-
+        let cmd = env.node_cmdline_generator.cmd_for_start(self, &env.meta);
         let outputs = Remote::from(&self.host).exec_cmd(&cmd).c(d!(cmd))?;
         let log = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&log).c(d!())
     }
 
-    fn is_running(&self, app_bin: &str, tendermint_bin: &str) -> Result<bool> {
-        let cmd = format!(
-            "ps ax -o pid,args | grep -E '({0}.*{2})|({1}.*{2})' | grep -v 'grep' | wc -l",
-            app_bin, tendermint_bin, &self.home
-        );
-
-        // Use the `wc -l` instead of the `grep -vc 'grep'`
-        // to avoid a non-zero exit code
-        Remote::from(&self.host)
-            .exec_cmd(&cmd)
-            .c(d!())?
-            .trim()
-            .parse::<u64>()
-            .c(d!())
-            .map(|n| alt!(0 < n, true, false))
-    }
-
-    fn stop(&self, force: bool) -> Result<()> {
-        let cmd = format!(
-            "for i in \
-                $(ps ax -o pid,args \
-                    | grep '{}' \
-                    | grep -v 'grep' \
-                    | grep -Eo '^ *[0-9]+' \
-                    | sed 's/ //g' \
-                ); \
-             do kill {} $i; done",
-            &self.home,
-            alt!(force, "-9", ""),
-        );
+    fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
+    where
+        C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
+        let cmd = env
+            .node_cmdline_generator
+            .cmd_for_stop(self, &env.meta, force);
         let outputs = Remote::from(&self.host).exec_cmd(&cmd).c(d!())?;
         let log = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&log).c(d!())
@@ -1410,7 +1368,7 @@ impl<P: NodePorts> Node<P> {
         let log = format!("\n\n[ {} ]\n{}: {}", datetime!(), &self.host.addr, log);
         let logfile = format!("{}/mgmt.log", &self.home);
         Remote::from(&self.host)
-            .write_file(logfile, log.as_bytes())
+            .append_file(logfile, log.as_bytes())
             .c(d!())
     }
 
@@ -1430,45 +1388,25 @@ impl<P: NodePorts> Node<P> {
 
     // Migrate this node to another host,
     // NOTE: the node ID has been changed
-    fn migrate(&self, new_node: &Node<P>) -> Result<()> {
+    fn migrate<C, S>(&self, new_node: &Node<P>, env: &Env<C, P, S>) -> Result<()>
+    where
+        C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
         if self.host.addr == new_node.host.addr {
             return Err(eg!("The host where the two nodes are located is the same"));
         }
 
-        let remote_from = Remote::from(&self.host);
-        let remote_to = Remote::from(&new_node.host);
+        // Fix me:
+        // only the validator client data need to be reserved,
+        // need to wait for the graceful exiting process ?
+        self.stop(env, false).c(d!())?;
 
-        let source_cfg_path = format!("{}/config", &self.home);
-        let target_cfg_path = format!("{}/config", &new_node.home);
+        let migrate_fn = env
+            .node_cmdline_generator
+            .cmd_for_migrate(self, new_node, &env.meta);
 
-        if !remote_from.file_is_dir(&source_cfg_path).c(d!())? {
-            return Err(eg!("The source cfg path is invalid"));
-        }
-
-        if !remote_to.file_is_dir(&new_node.home).c(d!())? {
-            return Err(eg!("The new base has not been built"));
-        }
-
-        self.stop(false).c(d!())?;
-
-        let local_cfg_copy = remote_from
-            .get_tgz_from_host(&source_cfg_path, Some("/tmp"))
-            .c(d!())?;
-        let remote_tgz_path = &local_cfg_copy;
-        remote_to
-            .put_file(&local_cfg_copy, remote_tgz_path)
-            .c(d!())
-            .and_then(|_| {
-                let cmd = format!(
-                    r"
-                    rm -rf {0} /tmp/{1} && \
-                    cd /tmp && tar -xf {2} && \
-                    mv /tmp/{1} {0}
-                    ",
-                    target_cfg_path, source_cfg_path, remote_tgz_path
-                );
-                remote_to.exec_cmd(&cmd).c(d!()).map(|_| ())
-            })
+        migrate_fn().c(d!())
     }
 }
 
@@ -1500,12 +1438,12 @@ where
     Create(EnvOpts<A, C>),
     Destroy(bool),    // force or not
     DestroyAll(bool), // force or not
-    PushNode(Option<HostAddr>),
-    MigrateNode((NodeID, Option<HostAddr>)),
+    PushNode(Option<HostID>),
+    MigrateNode((NodeID, Option<HostID>)),
     KickNode(Option<NodeID>),
-    // remote_host_addr|remote_host_addr_external#ssh_user#ssh_remote_port#weight#ssh_local_privkey
+    // remote_host_addr|remote_host_addr_ext_ip#ssh_user#ssh_remote_port#weight#ssh_local_privkey
     PushHost(HostExpression),
-    KickHost((HostAddr, bool)), // force or not
+    KickHost((HostID, bool)), // force or not
     Protect,
     Unprotect,
     Start(Option<NodeID>),
@@ -1529,12 +1467,6 @@ where
         cmd: Option<String>,
         script_path: Option<String>,
         hosts: Option<Hosts>,
-    },
-    NodeCollectLogs {
-        local_base_dir: Option<String>,
-    },
-    NodeCollectConfigurations {
-        local_base_dir: Option<String>,
     },
     Custom(U),
     Nil(P),

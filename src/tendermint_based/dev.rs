@@ -31,6 +31,7 @@ use tendermint_config::{
 use toml_edit::{value as toml_value, Array, DocumentMut as Document};
 
 pub use super::common::*;
+use crate::common::NodeCmdGenerator;
 
 static GLOBAL_BASE_DIR: LazyLock<String> =
     LazyLock::new(|| format!("{}/__DEV__", &*BASE_DIR));
@@ -61,7 +62,7 @@ where
     pub fn exec<S>(&self, s: S) -> Result<()>
     where
         P: NodePorts,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
             Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
@@ -173,7 +174,7 @@ where
 
     pub fn load_env_by_name<S>(cfg_name: &EnvName) -> Result<Option<Env<C, P, S>>>
     where
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let p = format!("{}/envs/{}/CONFIG", &*GLOBAL_BASE_DIR, cfg_name);
         match fs::read_to_string(p) {
@@ -199,20 +200,20 @@ pub struct Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     pub meta: EnvMeta<C, Node<P>>,
     pub is_protected: bool,
 
     #[serde(rename = "node_options_generator")]
-    pub node_opts_generator: S,
+    pub node_cmdline_generator: S,
 }
 
 impl<C, P, S> Env<C, P, S>
 where
     C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
     P: NodePorts,
-    S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
     // - Initilize a new env
     // - Create `genesis.json`
@@ -251,7 +252,7 @@ where
                 next_node_id: Default::default(),
             },
             is_protected: true,
-            node_opts_generator: s,
+            node_cmdline_generator: s,
         };
 
         fs::create_dir_all(&env.meta.home).c(d!())?;
@@ -343,7 +344,7 @@ where
             .nodes
             .remove(&id)
             .c(d!("Node ID does not exist?"))
-            .and_then(|n| n.stop(true).c(d!()).and_then(|_| n.clean().c(d!())))
+            .and_then(|n| n.stop(self, true).c(d!()).and_then(|_| n.clean().c(d!())))
             .and_then(|_| self.write_cfg().c(d!()))
     }
 
@@ -409,7 +410,7 @@ where
 
         nodes
             .into_iter()
-            .map(|n| n.stop(force).c(d!()))
+            .map(|n| n.stop(self, force).c(d!()))
             .collect::<Result<Vec<_>>>()
             .map(|_| ())
     }
@@ -814,31 +815,37 @@ impl<P: NodePorts> Node<P> {
     fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
     where
         C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-        S: NodeOptsGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
-        if self
-            .is_running(&env.meta.app_bin, &env.meta.tendermint_bin)
-            .c(d!())?
-        {
-            return Err(eg!("This node({}, {}) is running ...", self.id, self.home));
+        let cmd = env.node_cmdline_generator.cmd_cnt_running(self, &env.meta);
+        let process_cnt = cmd::exec_output(&cmd)
+            .c(d!(&cmd))?
+            .trim()
+            .parse::<u64>()
+            .c(d!())?;
+
+        if 0 < process_cnt {
+            if 2 < process_cnt {
+                // At least 3 processes is running, 'el'/'cl_bn'/'cl_vc'
+                return Err(eg!(
+                    "This node(ID {}) may be running, {} processes detected.",
+                    self.id,
+                    process_cnt
+                ));
+            } else {
+                println!(
+                    "This node(ID {}) may be in a partial failed state, less than 3 live processes({}) detected, enter the restart process.",
+                    self.id,
+                    process_cnt
+                );
+                // Probably a partial failure
+                self.stop(env, false).c(d!())?;
+            }
         }
 
         match unsafe { unistd::fork() } {
             Ok(ForkResult::Child) => {
-                let (tm_vars, tm_opts) =
-                    env.node_opts_generator.tendermint_opts(self, &env.meta);
-                let (app_vars, app_opts) =
-                    env.node_opts_generator.app_opts(self, &env.meta);
-                let cmd = format!(
-                    r#"
-                    chmod +x {tm_bin} {app_bin} || exit 1
-                    {tm_vars} {tm_bin} {tm_opts} >>{home}/tendermint.log 2>&1 &
-                    {app_vars} {app_bin} {app_opts} >>{home}/app.log 2>&1 &
-                    "#,
-                    tm_bin = env.meta.tendermint_bin,
-                    app_bin = env.meta.app_bin,
-                    home = &self.home,
-                );
+                let cmd = env.node_cmdline_generator.cmd_for_start(self, &env.meta);
                 pnk!(self.write_dev_log(&cmd));
                 pnk!(exec_spawn(&cmd));
                 exit(0);
@@ -848,36 +855,15 @@ impl<P: NodePorts> Node<P> {
         }
     }
 
-    fn is_running(&self, app_bin: &str, tendermint_bin: &str) -> Result<bool> {
-        let cmd = format!(
-            "ps ax -o pid,args | grep -E '({0}.*{2})|({1}.*{2})' | grep -v 'grep' | wc -l",
-            app_bin, tendermint_bin, &self.home
-        );
-
-        // Use the `wc -l` instead of the `grep -vc 'grep'`
-        // to avoid a non-zero exit code
-        cmd::exec_output(&cmd)
-            .c(d!(&cmd))?
-            .trim()
-            .parse::<u64>()
-            .c(d!())
-            .map(|n| alt!(0 < n, true, false))
-    }
-
-    fn stop(&self, force: bool) -> Result<()> {
-        let cmd = format!(
-            "for i in \
-                $(ps ax -o pid,args \
-                    | grep '{}' \
-                    | grep -v 'grep' \
-                    | grep -Eo '^ *[0-9]+' \
-                    | sed 's/ //g' \
-                ); \
-             do kill {} $i; done",
-            &self.home,
-            alt!(force, "-9", ""),
-        );
-        let outputs = cmd::exec_output(&cmd).c(d!())?;
+    fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
+    where
+        C: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+    {
+        let cmd = env
+            .node_cmdline_generator
+            .cmd_for_stop(self, &env.meta, force);
+        let outputs = cmd::exec_output(&cmd).c(d!(&cmd))?;
         let contents = format!("{}\n{}", &cmd, outputs.as_str());
         self.write_dev_log(&contents).c(d!())
     }
