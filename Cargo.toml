@@ -26,7 +26,7 @@ serde_yml = "0.0.12"
 ruc = { version = "7.7.0", features = [ "cmd", "ssh" ] }
 vsdb = { version = "3.0.0", default-features = false }
 
-tendermint = { version = "0.37", optional = true }
+tendermint = { version = "0.40", optional = true }
 tendermint-config = { version = "0.37", optional = true }
 toml_edit = { version = "0.22", optional = true }
 
