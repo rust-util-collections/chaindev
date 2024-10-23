@@ -961,8 +961,7 @@ where
 
     pub enable_tendermint_indexer: bool,
 
-    /// How many initial validators should be created,
-    /// default to 4
+    /// How many initial validators should be created
     pub initial_validator_num: u8,
 
     pub app_bin: String,
