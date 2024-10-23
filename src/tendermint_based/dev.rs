@@ -132,6 +132,10 @@ where
     #[serde(rename = "block_interval_in_seconds")]
     pub block_itv_secs: BlockItv,
 
+    pub create_empty_block: bool,
+
+    pub enable_tendermint_indexer: bool,
+
     #[serde(rename = "fuhrer_nodes")]
     pub fuhrers: BTreeMap<NodeID, N>,
 
@@ -245,6 +249,8 @@ where
                 tendermint_bin: opts.tendermint_bin.clone(),
                 tendermint_extra_opts: opts.tendermint_extra_opts.clone(),
                 block_itv_secs: opts.block_itv_secs,
+                create_empty_block: opts.create_empty_block,
+                enable_tendermint_indexer: opts.enable_tendermint_indexer,
                 nodes: Default::default(),
                 fuhrers: Default::default(),
                 genesis: None,
@@ -500,7 +506,11 @@ where
         let mut arr = Array::new();
         arr.push("*");
         cfg["rpc"]["cors_allowed_origins"] = toml_value(arr);
-        cfg["rpc"]["max_open_connections"] = toml_value(10_0000);
+        cfg["rpc"]["max_open_connections"] = toml_value(1000);
+
+        // Maximum size of request body, in bytes,
+        // set as ~300MB here
+        cfg["rpc"]["max_body_bytes"] = toml_value(300_000_000);
 
         cfg["p2p"]["pex"] = toml_value(true);
         cfg["p2p"]["seed_mode"] = toml_value(false);
@@ -517,41 +527,48 @@ where
             ports.get_sys_p2p()
         ));
 
-        cfg["consensus"]["timeout_propose"] = toml_value("8s");
+        cfg["consensus"]["timeout_propose"] = toml_value("12s");
         cfg["consensus"]["timeout_propose_delta"] = toml_value("500ms");
         cfg["consensus"]["timeout_prevote"] = toml_value("0s");
         cfg["consensus"]["timeout_prevote_delta"] = toml_value("500ms");
         cfg["consensus"]["timeout_precommit"] = toml_value("0s");
         cfg["consensus"]["timeout_precommit_delta"] = toml_value("500ms");
-        let block_itv = self.meta.block_itv_secs.to_millisecond().c(d!())?;
-        let itv = (block_itv / 2).to_string() + "ms";
-        cfg["consensus"]["timeout_commit"] = toml_value(&itv);
-        cfg["consensus"]["skip_timeout_commit"] = toml_value(false);
-        cfg["consensus"]["create_empty_blocks"] = toml_value(true);
-        cfg["consensus"]["create_empty_blocks_interval"] = toml_value(itv);
+
+        if self.meta.create_empty_block {
+            let block_itv = self.meta.block_itv_secs.to_millisecond().c(d!())?;
+            let itv = (block_itv / 2).to_string() + "ms";
+            cfg["consensus"]["timeout_commit"] = toml_value(&itv);
+            cfg["consensus"]["create_empty_blocks"] = toml_value(true);
+            cfg["consensus"]["create_empty_blocks_interval"] = toml_value(itv);
+        } else {
+            // Avoid creating empty blocks,
+            // also, we should not change the AppHash without new transactions
+            cfg["consensus"]["timeout_commit"] = toml_value("0s");
+            cfg["consensus"]["create_empty_blocks"] = toml_value(false);
+            cfg["consensus"]["create_empty_blocks_interval"] = toml_value("0s");
+        }
 
         cfg["mempool"]["recheck"] = toml_value(false);
         cfg["mempool"]["broadcast"] = toml_value(true);
-        cfg["mempool"]["size"] = toml_value(1_000_000);
-        cfg["mempool"]["cache_size"] = toml_value(2_000_000);
-        cfg["mempool"]["max_txs_bytes"] = toml_value(10 * GB);
-        cfg["mempool"]["max_tx_bytes"] = toml_value(5 * MB);
+        cfg["mempool"]["size"] = toml_value(100_000);
+        cfg["mempool"]["cache_size"] = toml_value(200_000);
+        cfg["mempool"]["max_txs_bytes"] = toml_value(GB);
+
+        // Maximum size of a single transaction.
+        cfg["mempool"]["max_tx_bytes"] = toml_value(250 * MB);
+
         cfg["mempool"]["ttl-num-blocks"] = toml_value(16);
 
         cfg["moniker"] = toml_value(format!("{}-{}", &self.meta.name, id));
 
-        match kind {
-            NodeKind::Node => {
-                cfg["p2p"]["max_num_inbound_peers"] = toml_value(40);
-                cfg["p2p"]["max_num_outbound_peers"] = toml_value(10);
-                cfg["tx_index"]["indexer"] = toml_value("null");
-            }
-            NodeKind::Fuhrer => {
-                cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
-                cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
-                cfg["tx_index"]["indexer"] = toml_value("kv");
-                cfg["tx_index"]["index_all_keys"] = toml_value(true);
-            }
+        cfg["p2p"]["max_num_inbound_peers"] = toml_value(400);
+        cfg["p2p"]["max_num_outbound_peers"] = toml_value(100);
+
+        if self.meta.enable_tendermint_indexer {
+            cfg["tx_index"]["indexer"] = toml_value("kv");
+            cfg["tx_index"]["index_all_keys"] = toml_value(true);
+        } else {
+            cfg["tx_index"]["indexer"] = toml_value("null");
         }
 
         // 3.
@@ -939,6 +956,10 @@ where
 
     /// Seconds between two blocks
     pub block_itv_secs: BlockItv,
+
+    pub create_empty_block: bool,
+
+    pub enable_tendermint_indexer: bool,
 
     /// How many initial validators should be created,
     /// default to 4
