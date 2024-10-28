@@ -905,7 +905,9 @@ pub struct Node<Ports: NodePorts> {
     pub home: String,
     pub ports: Ports,
     pub kind: NodeKind,
-    pub custom_data: Option<NodeCustomData>, // custom data set by USER
+
+    // custom data set by USER
+    pub custom_data: Option<NodeCustomData>,
 }
 
 impl<Ports: NodePorts> Node<Ports> {

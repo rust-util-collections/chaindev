@@ -1596,7 +1596,9 @@ pub struct Node<P: NodePorts> {
     pub host: HostMeta,
     pub ports: P,
     pub kind: NodeKind,
-    pub custom_data: Option<NodeCustomData>, // custom data set by USER
+
+    // custom data set by USER
+    pub custom_data: Option<NodeCustomData>,
 }
 
 impl<P: NodePorts> Node<P> {
