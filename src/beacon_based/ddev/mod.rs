@@ -509,26 +509,9 @@ where
             check_errlist!(@errlist)
         }
 
-        macro_rules! add_initial_nodes {
-            ($ids: expr, $kind: expr) => {{
-                env.alloc_resources($ids, $kind, None, None).c(d!())?;
-            }};
-        }
-
         let id = env.next_node_id();
-        add_initial_nodes!(&[id], NodeKind::Fuhrer);
-
-        let ids = (0..opts.initial_node_num)
-            .map(|_| env.next_node_id())
-            .collect::<Vec<_>>();
-        add_initial_nodes!(
-            &ids,
-            alt!(
-                opts.initial_nodes_fullnode,
-                NodeKind::FullNode,
-                NodeKind::ArchiveNode,
-            )
-        );
+        env.alloc_resources(&[id], NodeKind::Fuhrer, None, None)
+            .c(d!())?;
 
         env.gen_genesis()
             .c(d!())
@@ -1818,13 +1801,6 @@ pub struct EnvOpts<C: CustomData> {
     /// The initial validator keys,
     /// a gzip compressed tar package
     pub genesis_vkeys_tgz_path: Option<String>,
-
-    /// How many initial nodes should be created,
-    /// exclude the fuhrer node
-    pub initial_node_num: u8,
-
-    /// Set nodes as ArchiveNode by default
-    pub initial_nodes_fullnode: bool,
 
     /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)

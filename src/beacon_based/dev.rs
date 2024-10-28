@@ -359,21 +359,8 @@ where
 
         fs::create_dir_all(&env.meta.home).c(d!())?;
 
-        macro_rules! add_initial_nodes {
-            ($kind: expr) => {{
-                let id = env.next_node_id();
-                env.alloc_resources(id, $kind, None).c(d!())?;
-            }};
-        }
-
-        add_initial_nodes!(NodeKind::Fuhrer);
-        for _ in 0..opts.initial_node_num {
-            add_initial_nodes!(alt!(
-                opts.initial_nodes_fullnode,
-                NodeKind::FullNode,
-                NodeKind::ArchiveNode,
-            ));
-        }
+        let id = env.next_node_id();
+        env.alloc_resources(id, NodeKind::Fuhrer, None).c(d!())?;
 
         env.gen_genesis()
             .c(d!())
@@ -1084,13 +1071,6 @@ pub struct EnvOpts<Data: CustomData> {
     /// The initial validator keys,
     /// a gzip compressed tar package
     pub genesis_vkeys_tgz_path: Option<String>,
-
-    /// How many initial nodes should be created,
-    /// including the fuhrer node
-    pub initial_node_num: u8,
-
-    /// Set nodes as ArchiveNode by default
-    pub initial_nodes_fullnode: bool,
 
     /// Data data may be useful when cfg/running nodes,
     /// such as the info about execution client(reth or geth)
