@@ -155,14 +155,6 @@ where
                     })
             }
             Op::StopAll { force } => Env::<Data, Ports, Cmds>::stop_all(*force).c(d!()),
-            Op::Show => {
-                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
-                    .c(d!())
-                    .map(|env| {
-                        env.show();
-                    })
-            }
-            Op::ShowAll => Env::<Data, Ports, Cmds>::show_all().c(d!()),
             Op::DebugFailedNodes => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|env| env.debug_failed_nodes().c(d!())),
@@ -554,49 +546,6 @@ where
                 .c(d!("BUG: env not found!"))?
                 .stop(None, force)
                 .c(d!())?;
-        }
-        Ok(())
-    }
-
-    // Clean unreadable fields,
-    // make low-readable fields clear
-    #[inline(always)]
-    fn show(&self) {
-        let mut ret = pnk!(serde_json::to_value(self));
-
-        ret.as_object_mut()
-            .unwrap()
-            .remove("node_cmdline_generator");
-
-        let meta = ret["meta"].as_object_mut().unwrap();
-
-        for i in ["nodes", "fuhrer_nodes"] {
-            for n in meta[i].as_object_mut().unwrap().values_mut() {
-                let n = n.as_object_mut().unwrap();
-                let mark = n.remove("mark").unwrap();
-                let mark = alt!(mark.as_null().is_some(), 0, mark.as_u64().unwrap());
-                n.insert("el_type".to_owned(), alt!(0 == mark, "geth", "reth").into());
-                n.insert("cl_type".to_owned(), "lighthouse".into());
-            }
-        }
-
-        meta.remove("genesis");
-        meta.remove("genesis_vkeys");
-        meta.remove("nodes_should_be_online");
-        meta.remove("next_node_id");
-
-        println!("{}", pnk!(serde_json::to_string_pretty(&ret)));
-    }
-
-    // show the details of all existing ENVs
-    fn show_all() -> Result<()> {
-        for (idx, env) in Self::get_env_list().c(d!())?.iter().enumerate() {
-            println!("\x1b[31;01m====== ENV No.{} ======\x1b[00m", idx);
-            Self::load_env_by_name(env)
-                .c(d!())?
-                .c(d!("BUG: env not found!"))?
-                .show();
-            println!();
         }
         Ok(())
     }
@@ -1053,8 +1002,6 @@ where
     StopAll {
         force: bool, /*force or not*/
     },
-    Show,
-    ShowAll,
     DebugFailedNodes,
     List,
     Custom(Ops),
