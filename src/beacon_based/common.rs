@@ -18,6 +18,11 @@ pub trait CustomData:
 {
 }
 
+impl<T> CustomData for T where
+    T: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>
+{
+}
+
 /// Allocate ports based on this trait
 pub trait NodePorts:
     Clone + Default + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
