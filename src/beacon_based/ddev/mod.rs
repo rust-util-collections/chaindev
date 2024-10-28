@@ -283,6 +283,9 @@ where
     /// How many validators registered on the fuhrer nodes
     pub genesis_validator_num: u16,
 
+    /// Address of the deposit contract
+    pub deposit_contract_addr: String,
+
     /// `$EL_PREMINE_ADDRS` of the EGG repo
     pub premined_accounts: JsonValue,
 
@@ -467,6 +470,7 @@ where
                 genesis_vkeys,
                 genesis_mnemonic_words: Default::default(),
                 genesis_validator_num: Default::default(),
+                deposit_contract_addr: Default::default(),
                 premined_accounts: JsonValue::Null,
                 fuhrers: Default::default(),
                 nodes: Default::default(),
@@ -1227,6 +1231,16 @@ where
             self.meta.genesis_vkeys =
                 fs::read(format!("{repo}/data/{NODE_HOME_VCDATA_DST}")).c(d!())?;
 
+            let yml =
+                format!("{}/{NODE_HOME_GENESIS_DIR_DST}/config.yaml", self.meta.home);
+            let ymlhdr = fs::read(&yml)
+                .c(d!())
+                .and_then(|c| serde_yml::from_slice::<serde_yml::Value>(&c).c(d!()))?;
+            self.meta.deposit_contract_addr = ymlhdr["DEPOSIT_CONTRACT_ADDRESS"]
+                .as_str()
+                .c(d!())?
+                .to_owned();
+
             let yml = format!(
                 "{}/{NODE_HOME_GENESIS_DIR_DST}/mnemonics.yaml",
                 self.meta.home
@@ -1278,6 +1292,10 @@ where
                 ymlhdr["SECONDS_PER_ETH1_BLOCK"].as_u64().c(d!())?,
             ))
             .c(d!())?;
+            self.meta.deposit_contract_addr = ymlhdr["DEPOSIT_CONTRACT_ADDRESS"]
+                .as_str()
+                .c(d!())?
+                .to_owned();
 
             let yml = format!(
                 "{}/{NODE_HOME_GENESIS_DIR_DST}/mnemonics.yaml",
