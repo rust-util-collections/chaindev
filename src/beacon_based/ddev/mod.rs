@@ -35,7 +35,7 @@ static OCCUPIED_PORTS: LazyLock<RwLock<BTreeMap<HostID, BTreeSet<u16>>>> =
 #[serde(bound = "")]
 pub struct EnvCfg<C, P, U>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     P: NodePorts,
     U: CustomOps,
 {
@@ -48,7 +48,7 @@ where
 
 impl<C, P, U> EnvCfg<C, P, U>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     P: NodePorts,
     U: CustomOps,
 {
@@ -64,7 +64,7 @@ where
             Op::DestroyAll { force } => Env::<C, P, S>::destroy_all(*force).c(d!()),
             Op::PushNodes {
                 host,
-                node_mark,
+                custom_data,
                 fullnode,
                 num,
             } => Env::<C, P, S>::load_env_by_cfg(self)
@@ -72,7 +72,7 @@ where
                 .and_then(|mut env| {
                     env.push_nodes(
                         alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode,),
-                        Some(*node_mark),
+                        Some(custom_data.clone()),
                         host.as_ref(),
                         *num,
                     )
@@ -244,7 +244,7 @@ where
 #[serde(bound = "")]
 pub struct EnvMeta<C, N>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     N: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
     /// The name of this env
@@ -300,7 +300,7 @@ where
 
 impl<C, P> EnvMeta<C, Node<P>>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     P: NodePorts,
 {
     pub fn get_env_list() -> Result<Vec<EnvName>> {
@@ -350,7 +350,7 @@ where
 #[serde(bound = "")]
 pub struct Env<C, P, S>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     P: NodePorts,
     S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
@@ -361,7 +361,7 @@ where
 
 impl<C, P, S> Env<C, P, S>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     P: NodePorts,
     S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
@@ -628,11 +628,11 @@ where
     fn push_nodes(
         &mut self,
         node_kind: NodeKind,
-        node_mark: Option<NodeMark>,
+        custom_data: Option<NodeCustomData>,
         host_addr: Option<&HostAddr>,
         num: u8,
     ) -> Result<()> {
-        self.push_nodes_data(node_kind, node_mark, host_addr, num)
+        self.push_nodes_data(node_kind, custom_data, host_addr, num)
             .c(d!())
             .and_then(|ids| self.start(Some(ids), false, false).c(d!()))
     }
@@ -640,12 +640,12 @@ where
     fn push_nodes_data(
         &mut self,
         node_kind: NodeKind,
-        node_mark: Option<NodeMark>,
+        custom_data: Option<NodeCustomData>,
         host_addr: Option<&HostAddr>,
         num: u8,
     ) -> Result<BTreeSet<NodeID>> {
         let ids = (0..num).map(|_| self.next_node_id()).collect::<Vec<_>>();
-        self.alloc_resources(&ids, node_kind, node_mark, host_addr)
+        self.alloc_resources(&ids, node_kind, custom_data, host_addr)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(&ids)).c(d!()))
             .map(|_| ids.into_iter().collect())
@@ -698,7 +698,12 @@ where
         }
 
         let new_node_id = self
-            .push_nodes_data(old_node.kind, old_node.mark, Some(&new_host_addr), 1)
+            .push_nodes_data(
+                old_node.kind,
+                old_node.mark.clone(),
+                Some(&new_host_addr),
+                1,
+            )
             .c(d!())?
             .into_iter()
             .next()
@@ -1086,7 +1091,7 @@ where
         &mut self,
         ids: &[NodeID],
         kind: NodeKind,
-        mark: Option<NodeMark>,
+        mark: Option<NodeCustomData>,
         host_addr: Option<&HostAddr>,
     ) -> Result<()> {
         self.alloc_hosts_ports(ids, &kind, host_addr) // 1.
@@ -1112,7 +1117,7 @@ where
         &self,
         nodes_info: &[((NodeID, HostMeta), P)],
         kind: NodeKind,
-        mark: Option<NodeMark>,
+        mark: Option<NodeCustomData>,
     ) -> Result<Vec<Node<P>>> {
         let mut ret = vec![];
 
@@ -1121,6 +1126,7 @@ where
                 ni.iter()
                     .cloned()
                     .map(|((id, host), ports)| {
+                        let mark = mark.clone();
                         s.spawn(move || {
                             let home = format!("{}/{}", self.meta.home, id);
                             Remote::from(&host)
@@ -1560,13 +1566,13 @@ pub struct Node<P: NodePorts> {
     pub host: HostMeta,
     pub ports: P,
     pub kind: NodeKind,
-    pub mark: Option<NodeMark>, // custom mark set by USER
+    pub mark: Option<NodeCustomData>, // custom mark set by USER
 }
 
 impl<P: NodePorts> Node<P> {
     fn start<C, S>(&self, env: &Env<C, P, S>) -> Result<()>
     where
-        C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        C: CustomData,
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let cmd = env.node_cmdline_generator.cmd_cnt_running(self, &env.meta);
@@ -1605,7 +1611,7 @@ impl<P: NodePorts> Node<P> {
 
     fn stop<C, S>(&self, env: &Env<C, P, S>, force: bool) -> Result<()>
     where
-        C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        C: CustomData,
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         let cmd = env
@@ -1648,7 +1654,7 @@ impl<P: NodePorts> Node<P> {
     // NOTE: the node ID has been changed
     fn migrate<C, S>(&self, new_node: &Node<P>, env: &Env<C, P, S>) -> Result<()>
     where
-        C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        C: CustomData,
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         if self.host.addr == new_node.host.addr {
@@ -1672,7 +1678,7 @@ impl<P: NodePorts> Node<P> {
 #[serde(bound = "")]
 pub enum Op<C, P, U>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     P: NodePorts,
     U: CustomOps,
 {
@@ -1687,7 +1693,7 @@ where
     },
     PushNodes {
         host: Option<HostAddr>,
-        node_mark: NodeMark,
+        custom_data: NodeCustomData,
         fullnode: bool, /*for archive node set `false`*/
         num: u8,        /*how many new nodes to add*/
     },
@@ -1745,10 +1751,7 @@ where
 /// Options specified with the create operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvOpts<C>
-where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-{
+pub struct EnvOpts<C: CustomData> {
     /// The host list of the env
     pub hosts: Hosts,
 

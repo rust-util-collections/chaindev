@@ -1,13 +1,15 @@
 use crate::{
-    beacon_based::ddev::{Env, EnvMeta, Node, NodeCmdGenerator, NodePorts},
+    beacon_based::{
+        common::CustomData,
+        ddev::{Env, EnvMeta, Node, NodeCmdGenerator, NodePorts},
+    },
     check_errlist,
     common::remote::Remote,
     NodeID,
 };
 use ruc::*;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::{fmt, thread};
+use std::thread;
 
 pub fn collect_files_from_nodes<C, P, S>(
     env: &Env<C, P, S>,
@@ -16,7 +18,7 @@ pub fn collect_files_from_nodes<C, P, S>(
     local_base_dir: Option<&str>,
 ) -> Result<()>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    C: CustomData,
     P: NodePorts,
     S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {
@@ -113,7 +115,7 @@ pub fn collect_tgz_from_nodes<'a, C, P, S>(
     local_base_dir: Option<&'a str>,
 ) -> Result<()>
 where
-    C: Send + Sync + fmt::Debug + Clone + Serialize + for<'x> Deserialize<'x>,
+    C: CustomData,
     P: NodePorts,
     S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
 {

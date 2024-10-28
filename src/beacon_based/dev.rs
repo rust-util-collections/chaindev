@@ -32,7 +32,7 @@ static GLOBAL_BASE_DIR: LazyLock<String> =
 #[serde(bound = "")]
 pub struct EnvCfg<Data, Ports, Ops>
 where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: CustomData,
     Ports: NodePorts,
     Ops: CustomOps,
 {
@@ -45,7 +45,7 @@ where
 
 impl<Data, Ports, Ops> EnvCfg<Data, Ports, Ops>
 where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: CustomData,
     Ports: NodePorts,
     Ops: CustomOps,
 {
@@ -65,7 +65,7 @@ where
                 Env::<Data, Ports, Cmds>::destroy_all(*force).c(d!())
             }
             Op::PushNodes {
-                node_mark,
+                custom_data,
                 fullnode,
                 num,
             } => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
@@ -79,7 +79,7 @@ where
                                     NodeKind::FullNode,
                                     NodeKind::ArchiveNode,
                                 ),
-                                Some(*node_mark),
+                                Some(custom_data.clone()),
                             )
                             .c(d!())?;
                         println!("The {i}th new node has been created, NodeID: {id}");
@@ -169,7 +169,7 @@ where
 #[serde(bound = "")]
 pub struct EnvMeta<Data, N>
 where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: CustomData,
     N: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
 {
     /// The name of this env
@@ -227,7 +227,7 @@ where
 
 impl<Data, Ports> EnvMeta<Data, Node<Ports>>
 where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: CustomData,
     Ports: NodePorts,
 {
     pub fn get_env_list() -> Result<Vec<EnvName>> {
@@ -278,7 +278,7 @@ where
 #[serde(bound = "")]
 pub struct Env<Data, Ports, Cmds>
 where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: CustomData,
     Ports: NodePorts,
     Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
 {
@@ -289,7 +289,7 @@ where
 
 impl<Data, Ports, Cmds> Env<Data, Ports, Cmds>
 where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: CustomData,
     Ports: NodePorts,
     Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
 {
@@ -411,7 +411,11 @@ where
 
     // Fuhrer nodes are kept by system for now,
     // so only the other nodes can be added on demand
-    fn push_node(&mut self, kind: NodeKind, mark: Option<NodeMark>) -> Result<NodeID> {
+    fn push_node(
+        &mut self,
+        kind: NodeKind,
+        mark: Option<NodeCustomData>,
+    ) -> Result<NodeID> {
         let id = self.next_node_id();
         self.alloc_resources(id, kind, mark)
             .c(d!())
@@ -592,7 +596,7 @@ where
         &mut self,
         id: NodeID,
         kind: NodeKind,
-        mark: Option<NodeMark>,
+        mark: Option<NodeCustomData>,
     ) -> Result<()> {
         // 1.
         let home = format!("{}/{}", &self.meta.home, id);
@@ -861,13 +865,13 @@ pub struct Node<Ports: NodePorts> {
     pub home: String,
     pub ports: Ports,
     pub kind: NodeKind,
-    pub mark: Option<NodeMark>, // custom mark set by USER
+    pub mark: Option<NodeCustomData>, // custom mark set by USER
 }
 
 impl<Ports: NodePorts> Node<Ports> {
     fn start<Data, Cmds>(&self, env: &Env<Data, Ports, Cmds>) -> Result<()>
     where
-        Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        Data: CustomData,
         Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         let cmd = env.node_cmdline_generator.cmd_cnt_running(self, &env.meta);
@@ -910,7 +914,7 @@ impl<Ports: NodePorts> Node<Ports> {
 
     fn stop<Data, Cmds>(&self, env: &Env<Data, Ports, Cmds>, force: bool) -> Result<()>
     where
-        Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        Data: CustomData,
         Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         let cmd = env
@@ -926,7 +930,7 @@ impl<Ports: NodePorts> Node<Ports> {
     // - Remove all files related to this node
     fn destroy<Data, Cmds>(&self, env: &Env<Data, Ports, Cmds>) -> Result<()>
     where
-        Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+        Data: CustomData,
         Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         self.stop(env, true).c(d!())?;
@@ -966,7 +970,7 @@ impl<Ports: NodePorts> Node<Ports> {
 #[serde(bound = "")]
 pub enum Op<Data, Ports, Ops>
 where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
+    Data: CustomData,
     Ports: NodePorts,
     Ops: CustomOps,
 {
@@ -980,7 +984,7 @@ where
         force: bool,
     },
     PushNodes {
-        node_mark: NodeMark,
+        custom_data: NodeCustomData,
         fullnode: bool, /*for archive node set `false`*/
         num: u8,        /*how many new nodes to add*/
     },
@@ -1011,10 +1015,7 @@ where
 /// Options specified with the create operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct EnvOpts<Data>
-where
-    Data: fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>,
-{
+pub struct EnvOpts<Data: CustomData> {
     /// Eg.
     /// - '127.0.0.1'
     pub host_ip: String,

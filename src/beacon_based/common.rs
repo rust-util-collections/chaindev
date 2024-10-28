@@ -13,6 +13,11 @@ pub const MGMT_OPS_LOG: &str = "mgmt.log";
 
 ///////////////////////////////////////////////////////////////////////////
 
+pub trait CustomData:
+    Send + Sync + fmt::Debug + Clone + Serialize + for<'a> Deserialize<'a>
+{
+}
+
 /// Allocate ports based on this trait
 pub trait NodePorts:
     Clone + Default + fmt::Debug + Send + Sync + Serialize + for<'a> Deserialize<'a>
@@ -109,9 +114,9 @@ pub static BASE_DIR: LazyLock<String> = LazyLock::new(|| {
 
 // pub(crate) const PRESET_DEPOSIT: u128 = 32 * 10_u128.pow(18); // 32 ETH
 
-pub type BlockItv = u16;
+pub type NodeCustomData = JsonValue;
 
-pub type NodeMark = u32;
+pub type BlockItv = u16;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum NodeKind {
