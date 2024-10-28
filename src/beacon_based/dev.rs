@@ -203,6 +203,13 @@ where
     /// a gzip compressed tar package
     pub genesis_vkeys: Vec<u8>,
 
+    /// A 24-word bip39 mnemonic
+    /// where the initial validators are derived from
+    pub genesis_mnemonic_words: String,
+
+    /// How many validators registered on the fuhrer nodes
+    pub genesis_validator_num: u16,
+
     /// `$EL_PREMINE_ADDRS` of the EGG repo
     pub premined_accounts: JsonValue,
 
@@ -337,6 +344,8 @@ where
                 genesis_pre_settings: opts.genesis_pre_settings.clone(),
                 genesis,
                 genesis_vkeys,
+                genesis_mnemonic_words: Default::default(),
+                genesis_validator_num: Default::default(),
                 premined_accounts: JsonValue::Null,
                 fuhrers: Default::default(),
                 nodes: Default::default(),
@@ -717,9 +726,10 @@ where
                 fi
                 grep -Po '(?<= SLOT_DURATION_IN_SECONDS=")\d+' {cfg} >{block_itv_cache} || exit 1
                 make minimal_prepare || exit 1
-                make build
+                make build || exit 1
+                mv {repo}/data/{NODE_HOME_GENESIS_DIR_DST} {1}/ || exit 1
                 "#,
-                self.meta.block_itv
+                self.meta.block_itv, self.meta.home,
             );
 
             cmd::exec_output(&cmd).c(d!())?;
@@ -732,6 +742,17 @@ where
                 fs::read(format!("{repo}/data/{NODE_HOME_GENESIS_DST}")).c(d!())?;
             self.meta.genesis_vkeys =
                 fs::read(format!("{repo}/data/{NODE_HOME_VCDATA_DST}")).c(d!())?;
+
+            let yml = format!(
+                "{}/{NODE_HOME_GENESIS_DIR_DST}/mnemonics.yaml",
+                self.meta.home
+            );
+            let ymlhdr = fs::read(&yml)
+                .c(d!())
+                .and_then(|c| serde_yml::from_slice::<serde_yml::Value>(&c).c(d!()))?;
+            self.meta.genesis_mnemonic_words =
+                ymlhdr["mnemonic"].as_str().unwrap().to_owned();
+            self.meta.genesis_validator_num = ymlhdr["count"].as_u64().unwrap() as u16;
 
             let el_genesis_path = format!("{repo}/data/genesis/genesis.json");
             self.meta.premined_accounts =
@@ -747,25 +768,44 @@ where
             // update the `block itv` to the value in the genesis
 
             let genesis = format!("{tmpdir}/{NODE_HOME_GENESIS_DST}");
-            let cmd = format!("tar -C {tmpdir} -xpf {genesis} && cp {tmpdir}/*/{{config.yaml,genesis.json}} /{tmpdir}/");
+            let cmd = format!(
+                r#"
+                cd {tmpdir} || exit 1
+                tar -xpf {genesis} || exit 1
+                mv {NODE_HOME_GENESIS_DIR_DST} {0}/ || exit 1
+                "#,
+                self.meta.home
+            );
 
-            let yml = format!("{tmpdir}/config.yaml");
-            let genesis_json = format!("{tmpdir}/genesis.json");
-
-            fs::write(&genesis, &self.meta.genesis)
-                .c(d!())
-                .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
-
+            let yml =
+                format!("{}/{NODE_HOME_GENESIS_DIR_DST}/config.yaml", self.meta.home);
             let ymlhdr = fs::read(&yml)
                 .c(d!())
                 .and_then(|c| serde_yml::from_slice::<serde_yml::Value>(&c).c(d!()))?;
-
             self.meta.block_itv = u16::try_from(max!(
                 ymlhdr["SECONDS_PER_SLOT"].as_u64().c(d!())?,
                 ymlhdr["SECONDS_PER_ETH1_BLOCK"].as_u64().c(d!())?,
             ))
             .c(d!())?;
 
+            let yml = format!(
+                "{}/{NODE_HOME_GENESIS_DIR_DST}/mnemonics.yaml",
+                self.meta.home
+            );
+            let ymlhdr = fs::read(&yml)
+                .c(d!())
+                .and_then(|c| serde_yml::from_slice::<serde_yml::Value>(&c).c(d!()))?;
+            self.meta.genesis_mnemonic_words =
+                ymlhdr["mnemonic"].as_str().unwrap().to_owned();
+            self.meta.genesis_validator_num = ymlhdr["count"].as_u64().unwrap() as u16;
+
+            let genesis_json = format!(
+                "{}/{NODE_HOME_GENESIS_DIR_DST}/genesis.json",
+                self.meta.home
+            );
+            fs::write(&genesis, &self.meta.genesis)
+                .c(d!())
+                .and_then(|_| cmd::exec_output(&cmd).c(d!()))?;
             self.meta.premined_accounts =
                 get_pre_mined_accounts_from_genesis_json(&genesis_json).c(d!())?;
         }
