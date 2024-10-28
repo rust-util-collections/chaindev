@@ -414,10 +414,10 @@ where
     fn push_node(
         &mut self,
         kind: NodeKind,
-        mark: Option<NodeCustomData>,
+        custom_data: Option<NodeCustomData>,
     ) -> Result<NodeID> {
         let id = self.next_node_id();
-        self.alloc_resources(id, kind, mark)
+        self.alloc_resources(id, kind, custom_data)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
             .and_then(|_| self.launch(Some(id), false).c(d!()))
@@ -596,7 +596,7 @@ where
         &mut self,
         id: NodeID,
         kind: NodeKind,
-        mark: Option<NodeCustomData>,
+        custom_data: Option<NodeCustomData>,
     ) -> Result<()> {
         // 1.
         let home = format!("{}/{}", &self.meta.home, id);
@@ -610,7 +610,7 @@ where
             home,
             kind,
             ports,
-            mark,
+            custom_data,
         };
 
         match kind {
@@ -865,7 +865,7 @@ pub struct Node<Ports: NodePorts> {
     pub home: String,
     pub ports: Ports,
     pub kind: NodeKind,
-    pub mark: Option<NodeCustomData>, // custom mark set by USER
+    pub custom_data: Option<NodeCustomData>, // custom data set by USER
 }
 
 impl<Ports: NodePorts> Node<Ports> {

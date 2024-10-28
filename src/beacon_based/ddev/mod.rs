@@ -700,7 +700,7 @@ where
         let new_node_id = self
             .push_nodes_data(
                 old_node.kind,
-                old_node.mark.clone(),
+                old_node.custom_data.clone(),
                 Some(&new_host_addr),
                 1,
             )
@@ -1091,13 +1091,13 @@ where
         &mut self,
         ids: &[NodeID],
         kind: NodeKind,
-        mark: Option<NodeCustomData>,
+        custom_data: Option<NodeCustomData>,
         host_addr: Option<&HostAddr>,
     ) -> Result<()> {
         self.alloc_hosts_ports(ids, &kind, host_addr) // 1.
             .c(d!())
             .and_then(|nodes_info| {
-                self.apply_resources(&nodes_info, kind, mark).c(d!()) // 2.
+                self.apply_resources(&nodes_info, kind, custom_data).c(d!()) // 2.
             })
             .map(|nodes| {
                 nodes.into_iter().for_each(|n| match kind {
@@ -1117,7 +1117,7 @@ where
         &self,
         nodes_info: &[((NodeID, HostMeta), P)],
         kind: NodeKind,
-        mark: Option<NodeCustomData>,
+        custom_data: Option<NodeCustomData>,
     ) -> Result<Vec<Node<P>>> {
         let mut ret = vec![];
 
@@ -1126,7 +1126,7 @@ where
                 ni.iter()
                     .cloned()
                     .map(|((id, host), ports)| {
-                        let mark = mark.clone();
+                        let custom_data = custom_data.clone();
                         s.spawn(move || {
                             let home = format!("{}/{}", self.meta.home, id);
                             Remote::from(&host)
@@ -1139,7 +1139,7 @@ where
                                     id,
                                     home,
                                     kind,
-                                    mark,
+                                    custom_data,
                                     host,
                                     ports,
                                 })
@@ -1566,7 +1566,7 @@ pub struct Node<P: NodePorts> {
     pub host: HostMeta,
     pub ports: P,
     pub kind: NodeKind,
-    pub mark: Option<NodeCustomData>, // custom mark set by USER
+    pub custom_data: Option<NodeCustomData>, // custom data set by USER
 }
 
 impl<P: NodePorts> Node<P> {
