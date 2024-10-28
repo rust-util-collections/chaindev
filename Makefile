@@ -1,8 +1,8 @@
 all: fmt lint
 
 lint: fmt
-	cargo clippy
-	cargo clippy --tests
+	cargo clippy --all-features
+	cargo clippy --tests --all-features
 
 test:
 	cargo test -- --test-threads=1

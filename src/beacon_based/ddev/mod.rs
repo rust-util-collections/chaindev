@@ -57,31 +57,34 @@ where
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
-            Op::Create(envopts) => Env::<C, P, S>::create(self, envopts, s).c(d!()),
-            Op::Destroy(force) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Create { opts } => Env::<C, P, S>::create(self, opts, s).c(d!()),
+            Op::Destroy { force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
-            Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
-            Op::PushNodes((host_addr, node_mark, fullnode, num)) => {
-                Env::<C, P, S>::load_env_by_cfg(self)
+            Op::DestroyAll { force } => Env::<C, P, S>::destroy_all(*force).c(d!()),
+            Op::PushNodes {
+                host,
+                node_mark,
+                fullnode,
+                num,
+            } => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| {
+                    env.push_nodes(
+                        alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode,),
+                        Some(*node_mark),
+                        host.as_ref(),
+                        *num,
+                    )
                     .c(d!())
-                    .and_then(|mut env| {
-                        env.push_nodes(
-                            alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode,),
-                            Some(*node_mark),
-                            host_addr.as_ref(),
-                            *num,
-                        )
-                        .c(d!())
-                    })
-            }
-            Op::MigrateNodes((node_ids, host_addr)) => {
+                }),
+            Op::MigrateNodes { nodes, host } => {
                 Env::<C, P, S>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
                         // `rev()`: migrate newer nodes(bigger id) at first
-                        for (i, id) in node_ids.iter().rev().enumerate() {
-                            env.migrate_node(*id, host_addr.as_ref()).c(d!())?;
+                        for (i, id) in nodes.iter().rev().enumerate() {
+                            env.migrate_node(*id, host.as_ref()).c(d!())?;
                             println!(
                                 "The {}th node has been migrated, NodeID: {id}",
                                 1 + i
@@ -90,10 +93,10 @@ where
                         Ok(())
                     })
             }
-            Op::KickNodes((node_ids, num)) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickNodes { nodes, num } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| {
-                    if let Some(ids) = node_ids {
+                    if let Some(ids) = nodes {
                         for (i, id) in ids.iter().rev().copied().enumerate() {
                             let id_returned = env.kick_node(Some(id)).c(d!())?;
                             assert_eq!(id, id_returned);
@@ -110,13 +113,13 @@ where
                     }
                     Ok(())
                 }),
-            Op::PushHosts(hosts) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::PushHosts { hosts } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_hosts(hosts).c(d!())),
-            Op::KickHosts((host_ids, force)) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickHosts { hosts, force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| {
-                    for (i, id) in host_ids.iter().enumerate() {
+                    for (i, id) in hosts.iter().enumerate() {
                         let removed_host = env
                             .kick_host(id, *force)
                             .c(d!())
@@ -133,33 +136,35 @@ where
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start((node_ids, ignore_failed, realloc_ports)) => {
-                Env::<C, P, S>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|mut env| {
-                        if let Some(ids) = node_ids {
-                            env.start(
-                                Some(ids.iter().copied().collect()),
-                                *ignore_failed,
-                                *realloc_ports,
-                            )
-                            .c(d!())
-                        } else {
-                            env.start(None, *ignore_failed, *realloc_ports).c(d!())
-                        }
-                    })
-            }
-            Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
-            Op::Stop((node_ids, force)) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Start {
+                nodes,
+                ignore_failed,
+                realloc_ports,
+            } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| {
-                    if let Some(ids) = node_ids {
+                    if let Some(ids) = nodes {
+                        env.start(
+                            Some(ids.iter().copied().collect()),
+                            *ignore_failed,
+                            *realloc_ports,
+                        )
+                        .c(d!())
+                    } else {
+                        env.start(None, *ignore_failed, *realloc_ports).c(d!())
+                    }
+                }),
+            Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
+            Op::Stop { nodes, force } => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| {
+                    if let Some(ids) = nodes {
                         env.stop(Some(ids), *force).c(d!())
                     } else {
                         env.stop(None, *force).c(d!())
                     }
                 }),
-            Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
+            Op::StopAll { force } => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
             }),
@@ -1730,48 +1735,51 @@ where
     P: NodePorts,
     U: CustomOps,
 {
-    Create(EnvOpts<C>),
-    Destroy(bool),    // force or not
-    DestroyAll(bool), // force or not
-    PushNodes(
-        (
-            Option<HostAddr>,
-            NodeMark,
-            bool, /*for full node, set `true`; archive node set `false`*/
-            u8,   /*how many new nodes to add*/
-        ),
-    ),
-    MigrateNodes(
-        (
-            BTreeSet<NodeID>,
-            Option<HostAddr>, /*if not set, will select another host from the existing ones*/
-        ),
-    ),
-    KickNodes(
-        (
-            Option<BTreeSet<NodeID>>,
-            u8, /*how many nodes to kick if no specific ids are specified*/
-        ),
-    ),
-    PushHosts(Hosts),
-    KickHosts((Vec<HostID>, bool /*force or not*/)),
+    Create {
+        opts: EnvOpts<C>,
+    },
+    Destroy {
+        force: bool,
+    },
+    DestroyAll {
+        force: bool,
+    },
+    PushNodes {
+        host: Option<HostAddr>,
+        node_mark: NodeMark,
+        fullnode: bool, /*for archive node set `false`*/
+        num: u8,        /*how many new nodes to add*/
+    },
+    MigrateNodes {
+        nodes: BTreeSet<NodeID>,
+        host: Option<HostAddr>, /*if not set, will select another host from the existing ones*/
+    },
+    KickNodes {
+        nodes: Option<BTreeSet<NodeID>>,
+        num: u8, /*how many nodes to kick if no specific ids are specified*/
+    },
+    PushHosts {
+        hosts: Hosts,
+    },
+    KickHosts {
+        hosts: Vec<HostID>,
+        force: bool,
+    },
     Protect,
     Unprotect,
-    Start(
-        (
-            Option<BTreeSet<NodeID>>,
-            bool, /*ignore failed cases or not*/
-            bool, /*try to realloc ports or not*/
-        ),
-    ),
+    Start {
+        nodes: Option<BTreeSet<NodeID>>,
+        ignore_failed: bool, /*ignore failed cases or not*/
+        realloc_ports: bool, /*try to realloc ports or not*/
+    },
     StartAll,
-    Stop(
-        (
-            Option<BTreeSet<NodeID>>,
-            bool, /*force(kill -9) or not*/
-        ),
-    ),
-    StopAll(bool /*force or not*/),
+    Stop {
+        nodes: Option<BTreeSet<NodeID>>,
+        force: bool, /*force(kill -9) or not*/
+    },
+    StopAll {
+        force: bool,
+    },
     Show,
     ShowAll,
     DebugFailedNodes,

@@ -125,7 +125,7 @@ impl fmt::Display for NodeKind {
         let msg = match self {
             Self::Fuhrer => "fuhrer_node",
             Self::ArchiveNode => "archive_node",
-            Self::FullNode => "full_node",
+            Self::FullNode => "fullnode",
         };
         write!(f, "{}", msg)
     }

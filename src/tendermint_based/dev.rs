@@ -65,31 +65,31 @@ where
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
     {
         match &self.op {
-            Op::Create(opts) => Env::<C, P, S>::create(self, opts, s).c(d!()),
-            Op::Destroy(force) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Create { opts } => Env::<C, P, S>::create(self, opts, s).c(d!()),
+            Op::Destroy { force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|env| env.destroy(*force).c(d!())),
-            Op::DestroyAll(force) => Env::<C, P, S>::destroy_all(*force).c(d!()),
+            Op::DestroyAll { force } => Env::<C, P, S>::destroy_all(*force).c(d!()),
             Op::PushNode => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_node().c(d!())),
-            Op::KickNode(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickNode { node } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_node(*node_id).c(d!())),
+                .and_then(|mut env| env.kick_node(*node).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
             Op::Unprotect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start(node_id) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Start { node } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.start(*node_id).c(d!())),
+                .and_then(|mut env| env.start(*node).c(d!())),
             Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
-            Op::Stop((node_id, force)) => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::Stop { node, force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|env| env.stop(*node_id, *force).c(d!())),
-            Op::StopAll(force) => Env::<C, P, S>::stop_all(*force).c(d!()),
+                .and_then(|env| env.stop(*node, *force).c(d!())),
+            Op::StopAll { force } => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::Show => Env::<C, P, S>::load_env_by_cfg(self).c(d!()).map(|env| {
                 env.show();
             }),
@@ -925,17 +925,17 @@ where
     P: NodePorts,
     U: CustomOps,
 {
-    Create(EnvOpts<A, C>),
-    Destroy(bool),    // force or not
-    DestroyAll(bool), // force or not
+    Create { opts: EnvOpts<A, C> },
+    Destroy { force: bool },
+    DestroyAll { force: bool },
     PushNode,
-    KickNode(Option<NodeID>),
+    KickNode { node: Option<NodeID> },
     Protect,
     Unprotect,
-    Start(Option<NodeID>),
+    Start { node: Option<NodeID> },
     StartAll,
-    Stop((Option<NodeID>, bool)), // force or not
-    StopAll(bool),                // force or not
+    Stop { node: Option<NodeID>, force: bool },
+    StopAll { force: bool },
     Show,
     ShowAll,
     List,

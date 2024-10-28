@@ -55,40 +55,42 @@ where
         Cmds: NodeCmdGenerator<Node<Ports>, EnvMeta<Data, Node<Ports>>>,
     {
         match &self.op {
-            Op::Create(opts) => Env::<Data, Ports, Cmds>::create(self, opts, s).c(d!()),
-            Op::Destroy(force) => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+            Op::Create { opts } => {
+                Env::<Data, Ports, Cmds>::create(self, opts, s).c(d!())
+            }
+            Op::Destroy { force } => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
-            Op::DestroyAll(force) => {
+            Op::DestroyAll { force } => {
                 Env::<Data, Ports, Cmds>::destroy_all(*force).c(d!())
             }
-            Op::PushNodes((node_mark, fullnode, num)) => {
+            Op::PushNodes {
+                node_mark,
+                fullnode,
+                num,
+            } => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| {
+                    for i in 1..=*num {
+                        let id = env
+                            .push_node(
+                                alt!(
+                                    *fullnode,
+                                    NodeKind::FullNode,
+                                    NodeKind::ArchiveNode,
+                                ),
+                                Some(*node_mark),
+                            )
+                            .c(d!())?;
+                        println!("The {i}th new node has been created, NodeID: {id}");
+                    }
+                    Ok(())
+                }),
+            Op::KickNodes { nodes, num } => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
-                        for i in 1..=*num {
-                            let id = env
-                                .push_node(
-                                    alt!(
-                                        *fullnode,
-                                        NodeKind::FullNode,
-                                        NodeKind::ArchiveNode,
-                                    ),
-                                    Some(*node_mark),
-                                )
-                                .c(d!())?;
-                            println!(
-                                "The {i}th new node has been created, NodeID: {id}"
-                            );
-                        }
-                        Ok(())
-                    })
-            }
-            Op::KickNodes((node_ids, num)) => {
-                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|mut env| {
-                        if let Some(ids) = node_ids {
+                        if let Some(ids) = nodes {
                             for (i, id) in ids.iter().copied().enumerate() {
                                 let id_returned = env.kick_node(Some(id)).c(d!())?;
                                 assert_eq!(id, id_returned);
@@ -114,30 +116,31 @@ where
             Op::Unprotect => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.unprotect().c(d!())),
-            Op::Start((node_ids, ignore_failed)) => {
-                Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
-                    .c(d!())
-                    .and_then(|mut env| {
-                        if let Some(ids) = node_ids {
-                            for (i, id) in ids.iter().copied().enumerate() {
-                                env.launch(Some(id), *ignore_failed).c(d!())?;
-                                println!(
-                                    "The {}th node has been started, NodeID: {id}",
-                                    1 + i
-                                );
-                            }
-                            Ok(())
-                        } else {
-                            env.launch(None, *ignore_failed).c(d!())
+            Op::Start {
+                nodes,
+                ignore_failed,
+            } => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| {
+                    if let Some(ids) = nodes {
+                        for (i, id) in ids.iter().copied().enumerate() {
+                            env.launch(Some(id), *ignore_failed).c(d!())?;
+                            println!(
+                                "The {}th node has been started, NodeID: {id}",
+                                1 + i
+                            );
                         }
-                    })
-            }
+                        Ok(())
+                    } else {
+                        env.launch(None, *ignore_failed).c(d!())
+                    }
+                }),
             Op::StartAll => Env::<Data, Ports, Cmds>::start_all().c(d!()),
-            Op::Stop((node_ids, force)) => {
+            Op::Stop { nodes, force } => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
-                        if let Some(ids) = node_ids {
+                        if let Some(ids) = nodes {
                             for (i, id) in ids.iter().copied().enumerate() {
                                 env.stop(Some(id), *force).c(d!())?;
                                 println!(
@@ -151,7 +154,7 @@ where
                         }
                     })
             }
-            Op::StopAll(force) => Env::<Data, Ports, Cmds>::stop_all(*force).c(d!()),
+            Op::StopAll { force } => Env::<Data, Ports, Cmds>::stop_all(*force).c(d!()),
             Op::Show => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
@@ -1018,38 +1021,38 @@ where
     Ports: NodePorts,
     Ops: CustomOps,
 {
-    Create(EnvOpts<Data>),
-    Destroy(bool),    // force or not
-    DestroyAll(bool), // force or not
-    PushNodes(
-        (
-            NodeMark,
-            bool, /*for full node, set `true`; archive node set `false`*/
-            u8,   /*how many new nodes to add*/
-        ),
-    ),
-    KickNodes(
-        (
-            Option<BTreeSet<NodeID>>,
-            u8, /*how many nodes to kick if no specific ids are specified*/
-        ),
-    ),
+    Create {
+        opts: EnvOpts<Data>,
+    },
+    Destroy {
+        force: bool,
+    },
+    DestroyAll {
+        force: bool,
+    },
+    PushNodes {
+        node_mark: NodeMark,
+        fullnode: bool, /*for archive node set `false`*/
+        num: u8,        /*how many new nodes to add*/
+    },
+    KickNodes {
+        nodes: Option<BTreeSet<NodeID>>,
+        num: u8, /*how many nodes to kick if no specific ids are specified*/
+    },
     Protect,
     Unprotect,
-    Start(
-        (
-            Option<BTreeSet<NodeID>>,
-            bool, /*ignore failed cases or not*/
-        ),
-    ),
+    Start {
+        nodes: Option<BTreeSet<NodeID>>,
+        ignore_failed: bool, /*ignore failed cases or not*/
+    },
     StartAll,
-    Stop(
-        (
-            Option<BTreeSet<NodeID>>,
-            bool, /*force(kill -9) or not*/
-        ),
-    ),
-    StopAll(bool /*force or not*/),
+    Stop {
+        nodes: Option<BTreeSet<NodeID>>,
+        force: bool, /*force(kill -9) or not*/
+    },
+    StopAll {
+        force: bool, /*force or not*/
+    },
     Show,
     ShowAll,
     DebugFailedNodes,
