@@ -482,7 +482,18 @@ where
             node_cmdline_generator: s,
         };
 
-        fs::create_dir_all(&env.meta.home).c(d!())?;
+        fs::create_dir_all(&env.meta.home).c(d!()).and_then(|_| {
+            let cmd = format!(
+                r#"
+                cd {} && \
+                git init . && \
+                git config user.email x@x.org && \
+                git config user.name x
+                "#,
+                &env.meta.home
+            );
+            cmd::exec_output(&cmd).c(d!())
+        })?;
 
         // Use chunks to avoid resource overload
         for hosts in env
@@ -1597,9 +1608,14 @@ where
 
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
-        serde_json::to_vec(self)
-            .c(d!())
-            .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
+        let cfg = serde_json::to_vec_pretty(self).c(d!())?;
+        fs::write(format!("{}/CONFIG", &self.meta.home), &cfg).c(d!())?;
+
+        let cmd = format!(
+            "cd {} && git add CONFIG && git commit -m '...'",
+            &self.meta.home
+        );
+        cmd::exec_output(&cmd).c(d!()).map(|_| ())
     }
 }
 

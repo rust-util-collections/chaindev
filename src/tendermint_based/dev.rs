@@ -810,9 +810,14 @@ where
 
     #[inline(always)]
     pub fn write_cfg(&self) -> Result<()> {
-        serde_json::to_vec_pretty(self)
-            .c(d!())
-            .and_then(|d| fs::write(format!("{}/CONFIG", &self.meta.home), d).c(d!()))
+        let cfg = serde_json::to_vec_pretty(self).c(d!())?;
+        fs::write(format!("{}/CONFIG", &self.meta.home), &cfg).c(d!())?;
+
+        let cmd = format!(
+            "cd {} && git add CONFIG && git commit -m '...'",
+            &self.meta.home
+        );
+        cmd::exec_output(&cmd).c(d!()).map(|_| ())
     }
 }
 
