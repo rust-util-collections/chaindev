@@ -86,13 +86,14 @@ where
                     }
                     Ok(())
                 }),
-            Op::KickNodes { nodes, num } => {
+            Op::KickNodes { nodes, num, force } => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
                     .and_then(|mut env| {
                         if let Some(ids) = nodes {
                             for (i, id) in ids.iter().copied().enumerate() {
-                                let id_returned = env.kick_node(Some(id)).c(d!())?;
+                                let id_returned =
+                                    env.kick_node(Some(id), *force).c(d!())?;
                                 assert_eq!(id, id_returned);
                                 println!(
                                     "The {}th node has been kicked, NodeID: {id}",
@@ -101,7 +102,7 @@ where
                             }
                         } else {
                             for i in 1..=*num {
-                                let id = env.kick_node(None).c(d!())?;
+                                let id = env.kick_node(None, *force).c(d!())?;
                                 println!(
                                     "The {i}th node has been kicked, NodeID: {id}",
                                 );
@@ -437,8 +438,8 @@ where
 
     // Kick out a target node, or a randomly selected one,
     // NOTE: the fuhrer node will never be kicked
-    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<NodeID> {
-        if self.is_protected {
+    fn kick_node(&mut self, node_id: Option<NodeID>, force: bool) -> Result<NodeID> {
+        if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
                 self.meta.name
@@ -1062,6 +1063,7 @@ where
     KickNodes {
         nodes: Option<BTreeSet<NodeID>>,
         num: u8, /*how many nodes to kick if no specific ids are specified*/
+        force: bool,
     },
     Protect,
     Unprotect,

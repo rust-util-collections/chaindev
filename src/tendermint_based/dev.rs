@@ -73,9 +73,9 @@ where
             Op::PushNode => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_node().c(d!())),
-            Op::KickNode { node } => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::KickNode { node, force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_node(*node).c(d!())),
+                .and_then(|mut env| env.kick_node(*node, *force).c(d!())),
             Op::Protect => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.protect().c(d!())),
@@ -326,8 +326,8 @@ where
     }
 
     // The fuhrer node should not be removed
-    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
-        if self.is_protected {
+    fn kick_node(&mut self, node_id: Option<NodeID>, force: bool) -> Result<()> {
+        if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
                 self.meta.name
@@ -936,7 +936,7 @@ where
     Destroy { force: bool },
     DestroyAll { force: bool },
     PushNode,
-    KickNode { node: Option<NodeID> },
+    KickNode { node: Option<NodeID>, force: bool },
     Protect,
     Unprotect,
     Start { node: Option<NodeID> },

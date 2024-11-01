@@ -69,12 +69,16 @@ where
             Op::PushNode { host } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_node(host.as_ref()).c(d!())),
-            Op::MigrateNode { node, host } => Env::<C, P, S>::load_env_by_cfg(self)
+            Op::MigrateNode { node, host, force } => {
+                Env::<C, P, S>::load_env_by_cfg(self)
+                    .c(d!())
+                    .and_then(|mut env| {
+                        env.migrate_node(*node, host.as_ref(), *force).c(d!())
+                    })
+            }
+            Op::KickNode { node, force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.migrate_node(*node, host.as_ref()).c(d!())),
-            Op::KickNode { node } => Env::<C, P, S>::load_env_by_cfg(self)
-                .c(d!())
-                .and_then(|mut env| env.kick_node(*node, false).c(d!())),
+                .and_then(|mut env| env.kick_node(*node, false, *force).c(d!())),
             Op::PushHosts { hosts } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_host(hosts.as_str()).c(d!())),
@@ -515,7 +519,15 @@ where
         &mut self,
         node_id: NodeID,
         new_host: Option<&HostID>,
+        force: bool,
     ) -> Result<()> {
+        if !force && self.is_protected {
+            return Err(eg!(
+                "This env({}) is protected, `unprotect` it first",
+                self.meta.name
+            ));
+        }
+
         let old_node = self
             .meta
             .fuhrers
@@ -567,13 +579,22 @@ where
         old_node
             .migrate(new_node, self)
             .c(d!())
-            .or_else(|_| self.kick_node(Some(new_node_id), true).c(d!()).map(|_| ()))
-            .and_then(|_| self.kick_node(Some(node_id), true).c(d!()))
+            .or_else(|_| {
+                self.kick_node(Some(new_node_id), true, force)
+                    .c(d!())
+                    .map(|_| ())
+            })
+            .and_then(|_| self.kick_node(Some(node_id), true, force).c(d!()))
     }
 
     // The fuhrer node should not be removed
-    fn kick_node(&mut self, node_id: Option<NodeID>, migrate: bool) -> Result<()> {
-        if self.is_protected {
+    fn kick_node(
+        &mut self,
+        node_id: Option<NodeID>,
+        migrate: bool,
+        force: bool,
+    ) -> Result<()> {
+        if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
                 self.meta.name
@@ -652,7 +673,7 @@ where
                 .map(|n| n.id)
                 .collect::<BTreeSet<_>>();
             for id in nodes_to_migrate.into_iter() {
-                self.migrate_node(id, None).c(d!())?;
+                self.migrate_node(id, None, force).c(d!())?;
             }
         } else if let Some(n) = self.meta.hosts.as_ref().get(host).map(|h| h.node_cnt) {
             if 0 < n {
@@ -1474,9 +1495,11 @@ where
     MigrateNode {
         node: NodeID,
         host: Option<HostID>,
+        force: bool,
     },
     KickNode {
         node: Option<NodeID>,
+        force: bool,
     },
     // remote_host_addr|remote_host_addr_ext_ip#ssh_user#ssh_remote_port#weight#ssh_local_privkey
     PushHosts {
