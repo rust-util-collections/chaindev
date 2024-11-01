@@ -1202,7 +1202,8 @@ where
             &self.meta.home,
             datetime!()
         );
-        cmd::exec_output(&cmd).c(d!()).map(|_| ())
+        info_omit!(cmd::exec_output(&cmd), "No changes but try to commit?");
+        Ok(())
     }
 
     // Alloc <host,ports> for a new node
