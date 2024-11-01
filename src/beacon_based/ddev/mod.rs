@@ -694,7 +694,7 @@ where
                 })?;
             seq.sort_by(|a, b| a.1.cmp(&b.1));
             seq.into_iter()
-                .find(|h| h.0.addr != old_node.host.addr)
+                .find(|h| h.0.host_id() != old_node.host.host_id())
                 .c(d!("no avaliable hosts left, migrate failed"))
                 .map(|h| h.0)?
                 .addr
@@ -1440,47 +1440,46 @@ where
         node_kind: &NodeKind,
         host_addr: Option<&HostAddr>,
     ) -> Result<HostMeta> {
-        if let Some(addr) = host_addr {
-            return self
-                .meta
+        let host = if let Some(addr) = host_addr {
+            self.meta
                 .hosts
                 .as_ref()
                 .get(&addr.host_id())
                 .c(d!())
-                .map(|h| h.meta.clone());
-        }
-
-        let (max_host, max_weight) = self
-            .meta
-            .hosts
-            .as_ref()
-            .values()
-            .map(|h| (h.meta.clone(), h.weight))
-            .max_by(|a, b| a.1.cmp(&b.1))
-            .c(d!("BUG"))?;
-
-        let h = if matches!(node_kind, NodeKind::Fuhrer) {
-            max_host
+                .map(|h| h.meta.clone())?
         } else {
-            let mut seq = self
+            let (max_host, max_weight) = self
                 .meta
                 .hosts
                 .as_ref()
                 .values()
-                .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
-                .collect::<Vec<_>>();
-            seq.sort_by(|a, b| a.1.cmp(&b.1));
-            seq.into_iter().next().c(d!()).map(|h| h.0)?
+                .map(|h| (h.meta.clone(), h.weight))
+                .max_by(|a, b| a.1.cmp(&b.1))
+                .c(d!("BUG"))?;
+
+            if matches!(node_kind, NodeKind::Fuhrer) {
+                max_host
+            } else {
+                let mut seq = self
+                    .meta
+                    .hosts
+                    .as_ref()
+                    .values()
+                    .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
+                    .collect::<Vec<_>>();
+                seq.sort_by(|a, b| a.1.cmp(&b.1));
+                seq.into_iter().next().c(d!()).map(|h| h.0)?
+            }
         };
 
         self.meta
             .hosts
             .as_mut()
-            .get_mut(&h.addr.host_id())
+            .get_mut(&host.host_id())
             .unwrap()
             .node_cnt += 1;
 
-        Ok(h)
+        Ok(host)
     }
 
     // Return `true` if all existing ports are still ok
