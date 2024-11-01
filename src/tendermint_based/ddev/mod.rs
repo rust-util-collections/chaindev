@@ -74,7 +74,7 @@ where
                 .and_then(|mut env| env.migrate_node(*node, host.as_ref()).c(d!())),
             Op::KickNode { node } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
-                .and_then(|mut env| env.kick_node(*node).c(d!())),
+                .and_then(|mut env| env.kick_node(*node, false).c(d!())),
             Op::PushHosts { hosts } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.push_host(hosts.as_str()).c(d!())),
@@ -567,11 +567,12 @@ where
         old_node
             .migrate(new_node, self)
             .c(d!())
-            .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
+            .or_else(|_| self.kick_node(Some(new_node_id), true).c(d!()).map(|_| ()))
+            .and_then(|_| self.kick_node(Some(node_id), true).c(d!()))
     }
 
     // The fuhrer node should not be removed
-    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<()> {
+    fn kick_node(&mut self, node_id: Option<NodeID>, migrate: bool) -> Result<()> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -590,6 +591,13 @@ where
                 .next_back()
                 .c(d!("no node found"))?
         };
+
+        if !migrate && self.meta.fuhrers.contains_key(&id) {
+            return Err(eg!(
+                "Node-[{}] is a fuhrer node, deny to kick except in migration",
+                id
+            ));
+        }
 
         self.meta
             .nodes

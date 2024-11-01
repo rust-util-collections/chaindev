@@ -98,7 +98,7 @@ where
                 .and_then(|mut env| {
                     if let Some(ids) = nodes {
                         for (i, id) in ids.iter().rev().copied().enumerate() {
-                            let id_returned = env.kick_node(Some(id)).c(d!())?;
+                            let id_returned = env.kick_node(Some(id), false).c(d!())?;
                             assert_eq!(id, id_returned);
                             println!(
                                 "The {}th node has been kicked, NodeID: {id}",
@@ -107,7 +107,7 @@ where
                         }
                     } else {
                         for i in 1..=*num {
-                            let id = env.kick_node(None).c(d!())?;
+                            let id = env.kick_node(None, false).c(d!())?;
                             println!("The {i}th node has been kicked, NodeID: {id}",);
                         }
                     }
@@ -725,13 +725,13 @@ where
         old_node
             .migrate(new_node, self)
             .c(d!())
-            .or_else(|_| self.kick_node(Some(new_node_id)).c(d!()).map(|_| ()))
-            .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
+            .or_else(|_| self.kick_node(Some(new_node_id), true).c(d!()).map(|_| ()))
+            .and_then(|_| self.kick_node(Some(node_id), true).c(d!()))
     }
 
     // Kick out a target node, or a randomly selected one,
     // NOTE: the fuhrer node will never be kicked
-    fn kick_node(&mut self, node_id: Option<NodeID>) -> Result<NodeID> {
+    fn kick_node(&mut self, node_id: Option<NodeID>, migrate: bool) -> Result<NodeID> {
         if self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
@@ -751,8 +751,11 @@ where
                 .c(d!("no node found"))?
         };
 
-        if self.meta.fuhrers.contains_key(&id) {
-            return Err(eg!("Node-[{}] is a fuhrer node, deny to kick", id));
+        if !migrate && self.meta.fuhrers.contains_key(&id) {
+            return Err(eg!(
+                "Node-[{}] is a fuhrer node, deny to kick except in migration",
+                id
+            ));
         }
 
         self.meta
