@@ -921,9 +921,7 @@ where
             &self.meta.home,
             datetime!()
         );
-        info_omit!(cmd::exec_output(&cmd));
-
-        Ok(())
+        cmd::exec_output(&cmd).c(d!()).map(|_| ())
     }
 }
 

@@ -854,6 +854,7 @@ where
     ) -> Result<()> {
         let mut nodes = vec![];
 
+        let mut chged = false;
         if let Some(ids) = ids {
             for id in ids.iter() {
                 if let Some(n) = self
@@ -865,6 +866,7 @@ where
                     if realloc_ports && !Self::check_node_ports(n).c(d!())? {
                         n.drop_ports();
                         n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+                        chged = true;
                     }
 
                     nodes.push(n.clone());
@@ -882,6 +884,7 @@ where
                 if realloc_ports && !Self::check_node_ports(n).c(d!())? {
                     n.drop_ports();
                     n.ports = Self::alloc_ports(&n.kind, &n.host).c(d!())?;
+                    chged = true;
                 }
 
                 // todo: update ports
@@ -889,7 +892,9 @@ where
             }
         };
 
-        self.write_cfg().c(d!())?;
+        if chged {
+            self.write_cfg().c(d!())?;
+        }
 
         let mut online_ids = vec![];
         let mut errlist = vec![];
@@ -1616,9 +1621,7 @@ where
             &self.meta.home,
             datetime!()
         );
-        info_omit!(cmd::exec_output(&cmd));
-
-        Ok(())
+        cmd::exec_output(&cmd).c(d!()).map(|_| ())
     }
 }
 

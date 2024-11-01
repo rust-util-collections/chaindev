@@ -683,9 +683,7 @@ where
                 .collect()
         });
 
-        self.update_peer_cfg()
-            .c(d!())
-            .and_then(|_| self.write_cfg().c(d!()))?;
+        self.update_peer_cfg().c(d!())?;
 
         let errlist = thread::scope(|s| {
             let mut hdrs = vec![];
@@ -984,9 +982,6 @@ where
             let mut hdrs = vec![];
             for n in self.meta.nodes.values().chain(self.meta.fuhrers.values()) {
                 let hdr = s.spawn(|| {
-                    self.apply_resources(n.id, n.kind, n.host.clone(), n.ports.clone())
-                        .c(d!())?;
-
                     let remote = Remote::from(&n.host);
                     let cfgfile = format!("{}/config/config.toml", &n.home);
                     let mut cfg = remote
@@ -1003,9 +998,7 @@ where
                                 format!(
                                     "{}@{}:{}",
                                     &p.tm_id,
-                                    p.host.addr.connection_addr_x(
-                                        &n.host.addr.local_network_id
-                                    ),
+                                    p.host.addr.connection_addr(),
                                     p.ports.get_sys_p2p()
                                 )
                             })
@@ -1213,9 +1206,7 @@ where
             &self.meta.home,
             datetime!()
         );
-        info_omit!(cmd::exec_output(&cmd));
-
-        Ok(())
+        cmd::exec_output(&cmd).c(d!()).map(|_| ())
     }
 
     // Alloc <host,ports> for a new node
