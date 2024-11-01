@@ -787,7 +787,7 @@ where
             let cmd = format!(
                 r#"
                 cd {tmpdir} || exit 1
-                tar -xpf {genesis} || exit 1
+                tar -xf {genesis} || exit 1
                 cp -r {NODE_HOME_GENESIS_DIR_DST} {0}/ || exit 1
                 "#,
                 self.meta.home

@@ -632,21 +632,17 @@ where
         }
 
         if force {
-            let mut dup_buf = BTreeSet::new();
+            if 2 > self.meta.hosts.as_ref().len() {
+                return Err(eg!("Host insufficient(num <= 1), add more hosts first!"));
+            }
             let nodes_to_migrate = self
                 .meta
                 .fuhrers
                 .values()
                 .chain(self.meta.nodes.values())
                 .filter(|n| &n.host.host_id() == host)
-                .map(|n| {
-                    dup_buf.insert(n.host.addr.clone());
-                    n.id
-                })
+                .map(|n| n.id)
                 .collect::<BTreeSet<_>>();
-            if 2 > dup_buf.len() {
-                return Err(eg!("Host insufficient(num < 2), add more hosts first!"));
-            }
             for id in nodes_to_migrate.into_iter() {
                 self.migrate_node(id, None).c(d!())?;
             }

@@ -725,6 +725,7 @@ where
         old_node
             .migrate(new_node, self)
             .c(d!())
+            .or_else(|_| self.kick_node(Some(new_node_id)).c(d!()).map(|_| ()))
             .and_then(|_| self.kick_node(Some(node_id)).c(d!()))
     }
 
@@ -804,23 +805,19 @@ where
 
         if let Some(h) = self.meta.hosts.as_ref().get(host_id) {
             if force {
-                let mut dup_buf = BTreeSet::new();
+                if 2 > self.meta.hosts.as_ref().len() {
+                    return Err(eg!(
+                        "Host insufficient(num <= 1), add more hosts first!"
+                    ));
+                }
                 let nodes_to_migrate = self
                     .meta
                     .fuhrers
                     .values()
                     .chain(self.meta.nodes.values())
                     .filter(|n| &n.host.addr.host_id() == host_id)
-                    .map(|n| {
-                        dup_buf.insert(n.host.addr.clone());
-                        n.id
-                    })
+                    .map(|n| n.id)
                     .collect::<BTreeSet<_>>();
-                if 2 > dup_buf.len() {
-                    return Err(eg!(
-                        "Host insufficient(num < 2), add more hosts first!"
-                    ));
-                }
                 for id in nodes_to_migrate.into_iter() {
                     self.migrate_node(id, None).c(d!())?;
                 }
@@ -1289,7 +1286,7 @@ where
             let cmd = format!(
                 r#"
                 cd {tmpdir} || exit 1
-                tar -xpf {genesis} || exit 1
+                tar -xf {genesis} || exit 1
                 cp -r {NODE_HOME_GENESIS_DIR_DST} {0}/ || exit 1
                 "#,
                 self.meta.home
