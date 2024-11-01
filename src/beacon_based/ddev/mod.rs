@@ -84,9 +84,9 @@ where
                     .and_then(|mut env| {
                         // `rev()`: migrate newer nodes(bigger id) at first
                         for (i, id) in nodes.iter().rev().enumerate() {
-                            env.migrate_node(*id, host.as_ref(), *force).c(d!())?;
+                            let new_id = env.migrate_node(*id, host.as_ref(), *force).c(d!())?;
                             println!(
-                                "The {}th node has been migrated, NodeID: {id}",
+                                "The {}th node has been migrated, previous NodeID: {id}, current NodeID: {new_id}",
                                 1 + i
                             );
                         }
@@ -664,7 +664,8 @@ where
     }
 
     // Migrate the target node to another host,
-    // NOTE: the node ID will be reallocated
+    // NOTE:
+    //    - The node ID will be reallocated and returned
     fn migrate_node(
         &mut self,
         node_id: NodeID,
@@ -744,6 +745,7 @@ where
                     .map(|_| ())
             })
             .and_then(|_| self.kick_node(Some(node_id), true, force).c(d!()))
+            .map(|_| new_node_id)
     }
 
     // Kick out a target node, or a randomly selected one,

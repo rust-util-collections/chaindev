@@ -38,14 +38,14 @@ impl<'a> Remote<'a> {
         let cmd = format!("ulimit -n 100000 >/dev/null 2>&1;{}", cmd);
         self.inner
             .exec_cmd(&cmd)
-            .map_err(|e| eg!("[{}]: {}", cmd, e))
+            .c(d!(cmd))
             .map(|c| String::from_utf8_lossy(&c).into_owned())
     }
 
     pub fn read_file<P: AsRef<Path>>(&self, path: P) -> Result<String> {
         self.inner
             .read_file(path)
-            .map_err(|e| eg!(e))
+            .c(d!())
             .map(|c| String::from_utf8_lossy(&c).into_owned())
     }
 
@@ -54,9 +54,7 @@ impl<'a> Remote<'a> {
         remote_path: RP,
         local_path: LP,
     ) -> Result<()> {
-        self.inner
-            .get_file(remote_path, local_path)
-            .map_err(|e| eg!(e))
+        self.inner.get_file(remote_path, local_path).c(d!())
     }
 
     /// Return: (the local path of tgz, the name of tgz)
@@ -84,9 +82,7 @@ impl<'a> Remote<'a> {
         remote_path: P,
         contents: &[u8],
     ) -> Result<()> {
-        self.inner
-            .replace_file(remote_path, contents)
-            .map_err(|e| eg!(e))
+        self.inner.replace_file(remote_path, contents).c(d!())
     }
 
     pub fn append_file<P: AsRef<Path>>(
@@ -94,9 +90,7 @@ impl<'a> Remote<'a> {
         remote_path: P,
         contents: &[u8],
     ) -> Result<()> {
-        self.inner
-            .append_file(remote_path, contents)
-            .map_err(|e| eg!(e))
+        self.inner.append_file(remote_path, contents).c(d!())
     }
 
     pub fn put_file<LP: AsRef<Path>, RP: AsRef<Path>>(
@@ -104,9 +98,7 @@ impl<'a> Remote<'a> {
         local_path: LP,
         remote_path: RP,
     ) -> Result<()> {
-        self.inner
-            .put_file(local_path, remote_path)
-            .map_err(|e| eg!(e))
+        self.inner.put_file(local_path, remote_path).c(d!())
     }
 
     pub fn file_is_dir<P: AsRef<str>>(&self, remote_path: P) -> Result<bool> {
