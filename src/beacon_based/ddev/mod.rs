@@ -799,7 +799,7 @@ where
     }
 
     fn kick_host(&mut self, host_id: &HostID, force: bool) -> Result<Host> {
-        if self.is_protected {
+        if !force && self.is_protected {
             return Err(eg!(
                 "This env({}) is protected, `unprotect` it first",
                 self.meta.name
