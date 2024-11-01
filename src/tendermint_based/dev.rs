@@ -814,10 +814,13 @@ where
         fs::write(format!("{}/CONFIG", &self.meta.home), &cfg).c(d!())?;
 
         let cmd = format!(
-            "cd {} && git add CONFIG && git commit -m '...'",
-            &self.meta.home
+            "cd {} && git add CONFIG && git commit -m '{}'",
+            &self.meta.home,
+            datetime!()
         );
-        cmd::exec_output(&cmd).c(d!()).map(|_| ())
+        info_omit!(cmd::exec_output(&cmd));
+
+        Ok(())
     }
 }
 
