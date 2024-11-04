@@ -10,9 +10,13 @@ use std::{
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
 pub struct HostAddr {
     pub local_ip: String,
-    #[serde(default)]
+    #[serde(default = "default_local_network_id")]
     pub local_network_id: String,
     pub ext_ip: Option<String>,
+}
+
+fn default_local_network_id() -> String {
+    "default_mlm_mmm_lqm_qmzl_9527".to_owned()
 }
 
 impl HostAddr {
@@ -24,9 +28,7 @@ impl HostAddr {
     /// Use the local ip to get better performance,
     /// if they are locating in the same local network
     pub fn connection_addr_x(&self, local_network_id: &str) -> &str {
-        if !self.local_network_id.is_empty()
-            && self.local_network_id == local_network_id
-        {
+        if self.local_network_id == local_network_id {
             &self.local_ip
         } else {
             self.connection_addr()
@@ -61,7 +63,7 @@ impl FromStr for HostAddr {
 
         let local_info = addrs[0].split('%').collect::<Vec<_>>();
         let (local_network_id, local_ip) = if 1 == local_info.len() {
-            ("".to_owned(), local_info[0].to_owned())
+            (default_local_network_id(), local_info[0].to_owned())
         } else if 2 == local_info.len() {
             (local_info[0].to_owned(), local_info[1].to_owned())
         } else {
@@ -281,7 +283,7 @@ impl HostsJsonCfg {
                 meta: HostMeta {
                     addr: HostAddr {
                         local_ip: "10.0.0.2".to_owned(),
-                        local_network_id: String::new(),
+                        local_network_id: default_local_network_id(),
                         ext_ip: Some("8.8.8.8".to_owned()),
                     },
                     ssh_user: "alice".to_owned(),
@@ -295,7 +297,7 @@ impl HostsJsonCfg {
                 meta: HostMeta {
                     addr: HostAddr {
                         local_ip: "10.0.0.3".to_owned(),
-                        local_network_id: String::new(),
+                        local_network_id: default_local_network_id(),
                         ext_ip: None,
                     },
                     ssh_user: String::new(),
@@ -309,7 +311,7 @@ impl HostsJsonCfg {
                 meta: HostMeta {
                     addr: HostAddr {
                         local_ip: "10.0.0.4".to_owned(),
-                        local_network_id: String::new(),
+                        local_network_id: default_local_network_id(),
                         ext_ip: Some("8.8.4.4".to_owned()),
                     },
                     ssh_user: "jack".to_owned(),
@@ -576,7 +578,7 @@ mod test {
         assert_eq!(
             HostAddr {
                 local_ip: "10.0.0.8".to_owned(),
-                local_network_id: "".to_owned(),
+                local_network_id: default_local_network_id(),
                 ext_ip: Some("8.8.8.8".to_owned())
             },
             HostAddr::from_str(text).unwrap()
@@ -586,7 +588,7 @@ mod test {
         assert_eq!(
             HostAddr {
                 local_ip: "a10.0.0.8".to_owned(),
-                local_network_id: "".to_owned(),
+                local_network_id: default_local_network_id(),
                 ext_ip: Some("8.8.8.8".to_owned())
             },
             HostAddr::from_str(text).unwrap()
