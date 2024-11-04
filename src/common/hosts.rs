@@ -92,7 +92,7 @@ pub type HostExpression = String;
 pub type HostExpressionRef<'a> = &'a str;
 
 type Weight = u64;
-type WeightGuard = u8;
+type WeightGuard = u16;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Host {
