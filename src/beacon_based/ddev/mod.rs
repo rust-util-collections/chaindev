@@ -1385,7 +1385,7 @@ where
                 .collect()
         };
 
-        let genesis_node_id = *self.meta.fuhrers.first_key_value().c(d!())?.0;
+        let genesis_node_id = self.meta.fuhrers.first_key_value().map(|(k, _)| *k);
 
         // Use chunks to avoid resource overload
         for nodes in nodes.chunks(12) {
@@ -1397,7 +1397,7 @@ where
                         let mut p =
                             format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
                         remote.replace_file(&p, &self.meta.genesis).c(d!())?;
-                        if n.id == genesis_node_id {
+                        if genesis_node_id.is_some() && n.id == genesis_node_id.unwrap() {
                             p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
                             remote
                                 .replace_file(&p, &self.meta.genesis_vkeys)
