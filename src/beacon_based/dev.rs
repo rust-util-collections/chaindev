@@ -122,7 +122,7 @@ where
                 .and_then(|mut env| {
                     if let Some(ids) = nodes {
                         for (i, id) in ids.iter().copied().enumerate() {
-                            env.launch(Some(id), *ignore_failed).c(d!())?;
+                            env.start(Some(id), *ignore_failed).c(d!())?;
                             println!(
                                 "The {}th node has been started, NodeID: {id}",
                                 1 + i
@@ -130,7 +130,7 @@ where
                         }
                         Ok(())
                     } else {
-                        env.launch(None, *ignore_failed).c(d!())
+                        env.start(None, *ignore_failed).c(d!())
                     }
                 }),
             Op::Stop { nodes, force } => {
@@ -151,6 +151,27 @@ where
                         }
                     })
             }
+            Op::Restart {
+                nodes,
+                ignore_failed,
+                wait_itv_secs,
+            } => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| {
+                    if let Some(ids) = nodes {
+                        for (i, id) in ids.iter().copied().enumerate() {
+                            env.restart(Some(id), *ignore_failed, *wait_itv_secs)
+                                .c(d!())?;
+                            println!(
+                                "The {}th node has been restarted, NodeID: {id}",
+                                1 + i
+                            );
+                        }
+                        Ok(())
+                    } else {
+                        env.restart(None, *ignore_failed, *wait_itv_secs).c(d!())
+                    }
+                }),
             Op::DebugFailedNodes => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|env| env.debug_failed_nodes().c(d!())),
@@ -376,7 +397,7 @@ where
         env.gen_genesis()
             .c(d!())
             .and_then(|_| env.apply_genesis(None).c(d!()))
-            .and_then(|_| env.launch(None, false).c(d!()))
+            .and_then(|_| env.start(None, false).c(d!()))
     }
 
     // Destroy all nodes
@@ -427,7 +448,7 @@ where
         self.alloc_resources(id, kind, custom_data)
             .c(d!())
             .and_then(|_| self.apply_genesis(Some(id)).c(d!()))
-            .and_then(|_| self.launch(Some(id), false).c(d!()))
+            .and_then(|_| self.start(Some(id), false).c(d!()))
             .map(|_| id)
     }
 
@@ -480,7 +501,7 @@ where
     }
 
     // Start one or all nodes of the ENV
-    fn launch(&mut self, n: Option<NodeID>, ignore_failed: bool) -> Result<()> {
+    fn start(&mut self, n: Option<NodeID>, ignore_failed: bool) -> Result<()> {
         let ids = n.map(|id| vec![id]).unwrap_or_else(|| {
             self.meta
                 .fuhrers
@@ -513,7 +534,7 @@ where
     //         Self::load_env_by_name(env)
     //             .c(d!())?
     //             .c(d!("BUG: env not found!"))?
-    //             .launch(None, false)
+    //             .start(None, false)
     //             .c(d!())?;
     //     }
     //     Ok(())
@@ -560,6 +581,37 @@ where
     //     }
     //     Ok(())
     // }
+
+    // Restart one or all nodes
+    fn restart(
+        &mut self,
+        id: Option<NodeID>,
+        ignore_failed: bool,
+        wait_itv_secs: u8,
+    ) -> Result<()> {
+        let mut nodes = vec![];
+
+        if let Some(id) = id {
+            if self.meta.nodes.contains_key(&id) || self.meta.fuhrers.contains_key(&id)
+            {
+                nodes.push(id);
+            } else {
+                return Err(eg!("The node(id: {}) does not exist", id));
+            }
+        } else {
+            for id in self.meta.fuhrers.keys().chain(self.meta.nodes.keys()) {
+                nodes.push(*id);
+            }
+        };
+
+        for n in nodes.iter().copied() {
+            self.stop(Some(n), false).c(d!())?;
+            sleep_ms!(1000 * wait_itv_secs as u64);
+            self.start(Some(n), ignore_failed).c(d!())?;
+        }
+
+        Ok(())
+    }
 
     fn debug_failed_nodes(&self) -> Result<()> {
         let mut failed_cases = vec![];
@@ -1066,6 +1118,11 @@ where
     Stop {
         nodes: Option<BTreeSet<NodeID>>,
         force: bool, /*force(kill -9) or not*/
+    },
+    Restart {
+        nodes: Option<BTreeSet<NodeID>>,
+        ignore_failed: bool, /*ignore failed cases or not*/
+        wait_itv_secs: u8,   /*Seconds to wait between the `stop` and `start` ops*/
     },
     DebugFailedNodes,
     List,

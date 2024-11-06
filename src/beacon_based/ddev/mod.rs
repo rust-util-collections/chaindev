@@ -149,7 +149,7 @@ where
                 .and_then(|mut env| {
                     if let Some(ids) = nodes {
                         env.start(
-                            Some(ids.iter().copied().collect()),
+                            Some(&ids.iter().copied().collect()),
                             *ignore_failed,
                             *realloc_ports,
                         )
@@ -165,6 +165,32 @@ where
                         env.stop(Some(ids), *force).c(d!())
                     } else {
                         env.stop(None, *force).c(d!())
+                    }
+                }),
+            Op::Restart {
+                nodes,
+                ignore_failed,
+                realloc_ports,
+                wait_itv_secs,
+            } => Env::<C, P, S>::load_env_by_cfg(self)
+                .c(d!())
+                .and_then(|mut env| {
+                    if let Some(ids) = nodes {
+                        env.restart(
+                            Some(&ids.iter().copied().collect()),
+                            *ignore_failed,
+                            *realloc_ports,
+                            *wait_itv_secs,
+                        )
+                        .c(d!())
+                    } else {
+                        env.restart(
+                            None,
+                            *ignore_failed,
+                            *realloc_ports,
+                            *wait_itv_secs,
+                        )
+                        .c(d!())
                     }
                 }),
             Op::DebugFailedNodes => Env::<C, P, S>::load_env_by_cfg(self)
@@ -643,7 +669,7 @@ where
     ) -> Result<()> {
         self.push_nodes_data(node_kind, custom_data, host_addr, num)
             .c(d!())
-            .and_then(|ids| self.start(Some(ids), false, false).c(d!()))
+            .and_then(|ids| self.start(Some(&ids), false, false).c(d!()))
     }
 
     fn push_nodes_data(
@@ -869,7 +895,7 @@ where
     // Start one or all nodes
     fn start(
         &mut self,
-        ids: Option<BTreeSet<NodeID>>,
+        ids: Option<&BTreeSet<NodeID>>,
         ignore_failed: bool,
         realloc_ports: bool,
     ) -> Result<()> {
@@ -1035,6 +1061,42 @@ where
     //     }
     //     Ok(())
     // }
+
+    // Restart one or all nodes
+    fn restart(
+        &mut self,
+        ids: Option<&BTreeSet<NodeID>>,
+        ignore_failed: bool,
+        realloc_ports: bool,
+        wait_itv_secs: u8,
+    ) -> Result<()> {
+        let mut nodes = vec![];
+
+        if let Some(ids) = ids {
+            for id in ids.iter() {
+                if self.meta.nodes.contains_key(id)
+                    || self.meta.fuhrers.contains_key(id)
+                {
+                    nodes.push(*id);
+                } else {
+                    return Err(eg!("The node(id: {}) does not exist", id));
+                }
+            }
+        } else {
+            for id in self.meta.fuhrers.keys().chain(self.meta.nodes.keys()) {
+                nodes.push(*id);
+            }
+        };
+
+        for n in nodes.iter().copied() {
+            self.stop(Some(&set! {B n}), false).c(d!())?;
+            sleep_ms!(1000 * wait_itv_secs as u64);
+            self.start(Some(&set! {B n}), ignore_failed, realloc_ports)
+                .c(d!())?;
+        }
+
+        Ok(())
+    }
 
     fn debug_failed_nodes(&self) -> Result<()> {
         let (failed_cases, errlist) = self.collect_failed_nodes();
@@ -1813,6 +1875,12 @@ where
     Stop {
         nodes: Option<BTreeSet<NodeID>>,
         force: bool, /*force(kill -9) or not*/
+    },
+    Restart {
+        nodes: Option<BTreeSet<NodeID>>,
+        ignore_failed: bool, /*ignore failed cases or not*/
+        realloc_ports: bool, /*try to realloc ports or not*/
+        wait_itv_secs: u8,   /*Seconds to wait between the `stop` and `start` ops*/
     },
     DebugFailedNodes,
     List,
