@@ -61,9 +61,6 @@ where
             Op::Destroy { force } => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
-            Op::DestroyAll { force } => {
-                Env::<Data, Ports, Cmds>::destroy_all(*force).c(d!())
-            }
             Op::PushNodes {
                 custom_data,
                 fullnode,
@@ -136,7 +133,6 @@ where
                         env.launch(None, *ignore_failed).c(d!())
                     }
                 }),
-            Op::StartAll => Env::<Data, Ports, Cmds>::start_all().c(d!()),
             Op::Stop { nodes, force } => {
                 Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                     .c(d!())
@@ -155,7 +151,6 @@ where
                         }
                     })
             }
-            Op::StopAll { force } => Env::<Data, Ports, Cmds>::stop_all(*force).c(d!()),
             Op::DebugFailedNodes => Env::<Data, Ports, Cmds>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|env| env.debug_failed_nodes().c(d!())),
@@ -409,17 +404,17 @@ where
         fs::remove_dir_all(&self.meta.home).c(d!())
     }
 
-    // destroy all existing ENVs
-    fn destroy_all(force: bool) -> Result<()> {
-        for name in Self::get_env_list().c(d!())?.iter() {
-            let mut env = Self::load_env_by_name(name)
-                .c(d!())?
-                .c(d!("BUG: the ENV recorded, but not found"))?;
-            env.destroy(force).c(d!())?;
-        }
+    // // destroy all existing ENVs
+    // fn destroy_all(force: bool) -> Result<()> {
+    //     for name in Self::get_env_list().c(d!())?.iter() {
+    //         let mut env = Self::load_env_by_name(name)
+    //             .c(d!())?
+    //             .c(d!("BUG: the ENV recorded, but not found"))?;
+    //         env.destroy(force).c(d!())?;
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     // Fuhrer nodes are kept by system for now,
     // so only the other nodes can be added on demand
@@ -512,17 +507,17 @@ where
         Ok(())
     }
 
-    // Start all existing ENVs
-    fn start_all() -> Result<()> {
-        for env in Self::get_env_list().c(d!())?.iter() {
-            Self::load_env_by_name(env)
-                .c(d!())?
-                .c(d!("BUG: env not found!"))?
-                .launch(None, false)
-                .c(d!())?;
-        }
-        Ok(())
-    }
+    // // Start all existing ENVs
+    // fn start_all() -> Result<()> {
+    //     for env in Self::get_env_list().c(d!())?.iter() {
+    //         Self::load_env_by_name(env)
+    //             .c(d!())?
+    //             .c(d!("BUG: env not found!"))?
+    //             .launch(None, false)
+    //             .c(d!())?;
+    //     }
+    //     Ok(())
+    // }
 
     // - Stop all processes
     // - Release all occupied ports
@@ -554,17 +549,17 @@ where
         }
     }
 
-    // Stop all existing ENVs
-    fn stop_all(force: bool) -> Result<()> {
-        for env in Self::get_env_list().c(d!())?.iter() {
-            Self::load_env_by_name(env)
-                .c(d!())?
-                .c(d!("BUG: env not found!"))?
-                .stop(None, force)
-                .c(d!())?;
-        }
-        Ok(())
-    }
+    // // Stop all existing ENVs
+    // fn stop_all(force: bool) -> Result<()> {
+    //     for env in Self::get_env_list().c(d!())?.iter() {
+    //         Self::load_env_by_name(env)
+    //             .c(d!())?
+    //             .c(d!("BUG: env not found!"))?
+    //             .stop(None, force)
+    //             .c(d!())?;
+    //     }
+    //     Ok(())
+    // }
 
     fn debug_failed_nodes(&self) -> Result<()> {
         let mut failed_cases = vec![];
@@ -1052,9 +1047,6 @@ where
     Destroy {
         force: bool,
     },
-    DestroyAll {
-        force: bool,
-    },
     PushNodes {
         custom_data: NodeCustomData,
         fullnode: bool, /*for archive node set `false`*/
@@ -1071,13 +1063,9 @@ where
         nodes: Option<BTreeSet<NodeID>>,
         ignore_failed: bool, /*ignore failed cases or not*/
     },
-    StartAll,
     Stop {
         nodes: Option<BTreeSet<NodeID>>,
         force: bool, /*force(kill -9) or not*/
-    },
-    StopAll {
-        force: bool, /*force or not*/
     },
     DebugFailedNodes,
     List,

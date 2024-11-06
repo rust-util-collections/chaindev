@@ -61,7 +61,6 @@ where
             Op::Destroy { force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| env.destroy(*force).c(d!())),
-            Op::DestroyAll { force } => Env::<C, P, S>::destroy_all(*force).c(d!()),
             Op::PushNodes {
                 host,
                 custom_data,
@@ -159,7 +158,6 @@ where
                         env.start(None, *ignore_failed, *realloc_ports).c(d!())
                     }
                 }),
-            Op::StartAll => Env::<C, P, S>::start_all().c(d!()),
             Op::Stop { nodes, force } => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|mut env| {
@@ -169,7 +167,6 @@ where
                         env.stop(None, *force).c(d!())
                     }
                 }),
-            Op::StopAll { force } => Env::<C, P, S>::stop_all(*force).c(d!()),
             Op::DebugFailedNodes => Env::<C, P, S>::load_env_by_cfg(self)
                 .c(d!())
                 .and_then(|env| env.debug_failed_nodes().c(d!())),
@@ -617,23 +614,23 @@ where
         check_errlist!(errlist)
     }
 
-    // Destroy all existing ENVs
-    fn destroy_all(force: bool) -> Result<()> {
-        for name in Self::get_env_list().c(d!())?.iter() {
-            let mut env = Self::load_env_by_name(name)
-                .c(d!())?
-                .c(d!("BUG: env not found!"))?;
+    // // Destroy all existing ENVs
+    // fn destroy_all(force: bool) -> Result<()> {
+    //     for name in Self::get_env_list().c(d!())?.iter() {
+    //         let mut env = Self::load_env_by_name(name)
+    //             .c(d!())?
+    //             .c(d!("BUG: env not found!"))?;
 
-            if env.is_protected {
-                print_msg!("This env({}) is protected, `unprotect` it first", name);
-                continue;
-            }
+    //         if env.is_protected {
+    //             print_msg!("This env({}) is protected, `unprotect` it first", name);
+    //             continue;
+    //         }
 
-            env.destroy(force).c(d!())?;
-        }
+    //         env.destroy(force).c(d!())?;
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     // Fuhrer nodes are kept by system for now,
     // so only the other nodes can be added on demand
@@ -962,17 +959,17 @@ where
         Ok(())
     }
 
-    // Start all existing ENVs
-    fn start_all() -> Result<()> {
-        for env in Self::get_env_list().c(d!())?.iter() {
-            Self::load_env_by_name(env)
-                .c(d!())?
-                .c(d!("BUG: env not found!"))?
-                .start(None, false, false)
-                .c(d!())?;
-        }
-        Ok(())
-    }
+    // // Start all existing ENVs
+    // fn start_all() -> Result<()> {
+    //     for env in Self::get_env_list().c(d!())?.iter() {
+    //         Self::load_env_by_name(env)
+    //             .c(d!())?
+    //             .c(d!("BUG: env not found!"))?
+    //             .start(None, false, false)
+    //             .c(d!())?;
+    //     }
+    //     Ok(())
+    // }
 
     // - Stop all processes
     // - Release all occupied ports
@@ -1027,17 +1024,17 @@ where
         check_errlist!(errlist)
     }
 
-    // Stop all existing ENVs
-    fn stop_all(force: bool) -> Result<()> {
-        for env in Self::get_env_list().c(d!())?.iter() {
-            Self::load_env_by_name(env)
-                .c(d!())?
-                .c(d!("BUG: env not found!"))?
-                .stop(None, force)
-                .c(d!())?;
-        }
-        Ok(())
-    }
+    // // Stop all existing ENVs
+    // fn stop_all(force: bool) -> Result<()> {
+    //     for env in Self::get_env_list().c(d!())?.iter() {
+    //         Self::load_env_by_name(env)
+    //             .c(d!())?
+    //             .c(d!("BUG: env not found!"))?
+    //             .stop(None, force)
+    //             .c(d!())?;
+    //     }
+    //     Ok(())
+    // }
 
     fn debug_failed_nodes(&self) -> Result<()> {
         let (failed_cases, errlist) = self.collect_failed_nodes();
@@ -1397,7 +1394,8 @@ where
                         let mut p =
                             format!("{}/{NODE_HOME_GENESIS_DST}", n.home.as_str());
                         remote.replace_file(&p, &self.meta.genesis).c(d!())?;
-                        if genesis_node_id.is_some() && n.id == genesis_node_id.unwrap() {
+                        if genesis_node_id.is_some() && n.id == genesis_node_id.unwrap()
+                        {
                             p = format!("{}/{NODE_HOME_VCDATA_DST}", n.home.as_str());
                             remote
                                 .replace_file(&p, &self.meta.genesis_vkeys)
@@ -1782,9 +1780,6 @@ where
     Destroy {
         force: bool,
     },
-    DestroyAll {
-        force: bool,
-    },
     PushNodes {
         host: Option<HostAddr>,
         custom_data: NodeCustomData,
@@ -1815,13 +1810,9 @@ where
         ignore_failed: bool, /*ignore failed cases or not*/
         realloc_ports: bool, /*try to realloc ports or not*/
     },
-    StartAll,
     Stop {
         nodes: Option<BTreeSet<NodeID>>,
         force: bool, /*force(kill -9) or not*/
-    },
-    StopAll {
-        force: bool,
     },
     DebugFailedNodes,
     List,
