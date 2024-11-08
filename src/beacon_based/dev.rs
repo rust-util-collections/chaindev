@@ -384,9 +384,13 @@ where
                 cd {} && \
                 git init . && \
                 git config user.email x@x.org && \
-                git config user.name x
+                git config user.name x && \
+                echo '# ENV: {}' > README.md && \
+                git add README.md && \
+                git commit -m 'Initial commit'
                 "#,
-                &env.meta.home
+                env.meta.home,
+                env.meta.name
             );
             cmd::exec_output(&cmd).c(d!())
         })?;
@@ -778,6 +782,11 @@ where
                 make minimal_prepare || exit 1
                 make build || exit 1
                 cp -r {repo}/data/{NODE_HOME_GENESIS_DIR_DST} {1}/ || exit 1
+                cp -r {1}/{NODE_HOME_GENESIS_DIR_DST} {1}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
+                cd {1}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
+                rm -rf tranches mnemonics.yaml || exit 1
+                sed -ri 's/("secretKey":)\s".*"/\1 ""/' genesis.json || exit 1
+                sed -ri 's/("secretKey":)\s".*"/\1 ""/' chainspec.json || exit 1
                 "#,
                 self.meta.block_itv, self.meta.home,
             );
@@ -837,6 +846,11 @@ where
                 cd {tmpdir} || exit 1
                 tar -xf {genesis} || exit 1
                 cp -r {NODE_HOME_GENESIS_DIR_DST} {0}/ || exit 1
+                cp -r {0}/{NODE_HOME_GENESIS_DIR_DST} {0}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
+                cd {0}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
+                rm -rf tranches mnemonics.yaml || exit 1
+                sed -ri 's/("secretKey":)\s".*"/\1 ""/' genesis.json || exit 1
+                sed -ri 's/("secretKey":)\s".*"/\1 ""/' chainspec.json || exit 1
                 "#,
                 self.meta.home
             );
@@ -882,7 +896,13 @@ where
 
         omit!(fs::remove_dir_all(&tmpdir));
 
-        self.write_cfg().c(d!())
+        self.write_cfg().c(d!())?;
+
+        let cmd = format!(
+            "cd {} && git add {NODE_HOME_GENESIS_DIR_DST_PUBLIC}",
+            self.meta.home
+        );
+        cmd::exec_output(&cmd).c(d!()).map(|_| ())
     }
 
     // Apply genesis to node[s]:

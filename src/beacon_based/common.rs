@@ -11,6 +11,7 @@ pub const NODE_HOME_GENESIS_DST: &str = "genesis.tar.gz";
 pub const NODE_HOME_VCDATA_DST: &str = "vcdata.tar.gz";
 
 pub const NODE_HOME_GENESIS_DIR_DST: &str = "genesis";
+pub const NODE_HOME_GENESIS_DIR_DST_PUBLIC: &str = "genesis_public";
 
 pub const MGMT_OPS_LOG: &str = "mgmt.log";
 
