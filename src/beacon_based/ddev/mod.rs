@@ -710,7 +710,7 @@ where
             .fuhrers
             .get(&node_id)
             .or_else(|| self.meta.nodes.get(&node_id))
-            .c(d!("The target node does not exist"))?
+            .c(d!("The target node(id: {}) does not exist", node_id))?
             .clone();
 
         let new_host_addr = if let Some(addr) = new_host_addr {
@@ -812,7 +812,7 @@ where
             .nodes
             .remove(&id)
             .or_else(|| self.meta.fuhrers.remove(&id))
-            .c(d!("Node ID does not exist?"))
+            .c(d!("The node(id: {}) does not exist?", id))
             .and_then(|n| {
                 self.update_online_status(&[], &[id]);
                 self.meta

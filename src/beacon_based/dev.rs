@@ -389,8 +389,7 @@ where
                 git add README.md && \
                 git commit -m 'Initial commit'
                 "#,
-                env.meta.home,
-                env.meta.name
+                env.meta.home, env.meta.name
             );
             cmd::exec_output(&cmd).c(d!())
         })?;
@@ -485,7 +484,7 @@ where
         self.meta
             .nodes
             .remove(&id)
-            .c(d!("Node id does not exist?"))
+            .c(d!("Node(id: {})does not exist?", id))
             .and_then(|n| {
                 self.update_online_status(&[], &[id]);
                 n.destroy(self).c(d!())
