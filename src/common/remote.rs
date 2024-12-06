@@ -32,7 +32,7 @@ impl<'a> From<&'a Host> for Remote<'a> {
     }
 }
 
-impl<'a> Remote<'a> {
+impl Remote<'_> {
     // Execute a cmd on a remote host and get its outputs
     pub fn exec_cmd(&self, cmd: &str) -> Result<String> {
         let cmd = format!("ulimit -n 100000 >/dev/null 2>&1;{}", cmd);

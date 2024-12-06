@@ -1571,6 +1571,7 @@ where
                     .hosts
                     .as_ref()
                     .values()
+                    .filter(|h| h.weight > 0) // never allocate on 'zero-weight hosts'
                     .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
                     .collect::<Vec<_>>();
                 seq.sort_by(|a, b| a.1.cmp(&b.1));
