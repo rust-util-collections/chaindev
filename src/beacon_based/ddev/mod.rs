@@ -1623,7 +1623,7 @@ where
         Ok(n.ports.get_port_list().iter().all(port_is_free))
     }
 
-    fn alloc_ports(node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
+    fn alloc_ports(_node_kind: &NodeKind, host: &HostMeta) -> Result<P> {
         let reserved_ports = P::reserved();
         let reserved = reserved_ports
             .iter()
@@ -1649,11 +1649,7 @@ where
 
         let mut res = vec![];
 
-        // Avoid the preserved ports to be allocated on any validator node,
-        // allow non-valdator nodes(on different hosts) to
-        // get the owned preserved ports on their own scopes
-        if matches!(node_kind, NodeKind::Fuhrer)
-            && reserved.iter().all(|hp| !PC.read().contains(hp))
+        if reserved.iter().all(|hp| !PC.read().contains(hp))
             && reserved_ports.iter().all(port_is_free)
         {
             res = reserved_ports;
