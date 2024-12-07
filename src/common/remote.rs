@@ -1,6 +1,6 @@
 use crate::{
     check_errlist,
-    common::hosts::{Host, HostMeta, Hosts},
+    common::hosts::{Host, HostMeta, Hosts, Weight},
 };
 use ruc::{ssh, *};
 use std::{
@@ -124,14 +124,14 @@ impl Remote<'_> {
         })
     }
 
-    pub fn get_hosts_weight(&self) -> Result<u64> {
+    pub fn get_hosts_weight(&self) -> Result<Weight> {
         let cpunum = self
             .exec_cmd(
             r#"if [[ "Linux" = `uname -s` ]]; then nproc; elif [[ "Darwin" = `uname -s` ]]; then sysctl -a | grep 'machdep.cpu.core_count' | grep -o '[0-9]\+$'; else exit 1; fi"#,
                 )
             .c(d!())?
             .trim()
-            .parse::<u64>()
+            .parse::<Weight>()
             .c(d!())?;
 
         // let bogomips = self

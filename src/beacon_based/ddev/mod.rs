@@ -6,7 +6,7 @@ pub mod remote;
 
 use crate::check_errlist;
 use crate::common::{
-    hosts::{Host, HostAddr, HostID, HostMeta, Hosts},
+    hosts::{Host, HostAddr, HostID, HostMeta, Hosts, Weight},
     remote::{exec_cmds_on_hosts, get_file_from_hosts, put_file_to_hosts, Remote},
 };
 use parking_lot::RwLock;
@@ -729,7 +729,13 @@ where
                         .hosts
                         .as_ref()
                         .values()
-                        .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
+                        .filter(|h| h.weight > 0)
+                        .map(|h| {
+                            (
+                                h.meta.clone(),
+                                (h.node_cnt as Weight * max_weight) / h.weight,
+                            )
+                        })
                         .collect::<Vec<_>>()
                 })?;
             seq.sort_by(|a, b| a.1.cmp(&b.1));
@@ -1571,8 +1577,13 @@ where
                     .hosts
                     .as_ref()
                     .values()
-                    .filter(|h| h.weight > 0) // never allocate on 'zero-weight hosts'
-                    .map(|h| (h.meta.clone(), (h.node_cnt * max_weight) / h.weight))
+                    .filter(|h| h.weight > 0)
+                    .map(|h| {
+                        (
+                            h.meta.clone(),
+                            (h.node_cnt as Weight * max_weight) / h.weight,
+                        )
+                    })
                     .collect::<Vec<_>>();
                 seq.sort_by(|a, b| a.1.cmp(&b.1));
                 seq.into_iter().next().c(d!()).map(|h| h.0)?

@@ -91,8 +91,8 @@ impl FromStr for HostAddr {
 pub type HostExpression = String;
 pub type HostExpressionRef<'a> = &'a str;
 
-type Weight = u64;
-type WeightGuard = u16;
+pub type Weight = i64;
+type WeightGuard = i16;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Host {
