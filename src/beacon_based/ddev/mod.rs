@@ -766,18 +766,16 @@ where
             .fuhrers
             .get(&new_node_id)
             .or_else(|| self.meta.nodes.get(&new_node_id))
+            .cloned()
             .c(d!("BUG"))?;
 
-        old_node
-            .migrate(new_node, self)
-            .c(d!())
-            .or_else(|_| {
-                self.kick_node(Some(new_node_id), true, force)
-                    .c(d!())
-                    .map(|_| ())
-            })
-            .and_then(|_| self.kick_node(Some(node_id), true, force).c(d!()))
-            .map(|_| new_node_id)
+        old_node.migrate(&new_node, self).c(d!()).or_else(|_| {
+            self.kick_node(Some(new_node_id), true, force)
+                .c(d!())
+                .map(|_| ())
+        })?; // .and_then(|_| self.kick_node(Some(node_id), true, force).c(d!()))
+
+        Ok(new_node_id)
     }
 
     // Kick out a target node, or a randomly selected one,
@@ -1835,7 +1833,7 @@ impl<P: NodePorts> Node<P> {
 
     // Migrate this node to another host,
     // NOTE: the node ID has been changed
-    fn migrate<C, S>(&self, new_node: &Node<P>, env: &Env<C, P, S>) -> Result<()>
+    fn migrate<C, S>(&self, new_node: &Node<P>, env: &mut Env<C, P, S>) -> Result<()>
     where
         C: CustomData,
         S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
@@ -1848,6 +1846,7 @@ impl<P: NodePorts> Node<P> {
         // only the validator client data need to be reserved,
         // need to wait for the graceful exiting process ?
         self.stop(env, false).c(d!())?;
+        env.update_online_status(&[], &[self.id]);
 
         let migrate_fn = env
             .node_cmdline_generator
