@@ -70,7 +70,7 @@ where
                 .c(d!())
                 .and_then(|mut env| {
                     env.push_nodes(
-                        alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode,),
+                        alt!(*fullnode, NodeKind::FullNode, NodeKind::ArchiveNode),
                         Some(custom_data.clone()),
                         host.as_ref(),
                         *num,
@@ -325,7 +325,7 @@ where
     /// Non-fuhrer node collection
     pub nodes: BTreeMap<NodeID, N>,
 
-    /// An in-memory cache for recording node status,
+    /// An cache for recording node status,
     pub nodes_should_be_online: MapxOrd<NodeID, ()>,
 
     /// Data data may be useful when cfg/running nodes,
@@ -955,8 +955,9 @@ where
         let mut online_ids = vec![];
         let mut errlist = vec![];
 
-        // Use chunks to avoid resource overload
-        for (idx, nodes) in nodes.chunks(12).enumerate() {
+        // Use chunks to avoid resource overload,
+        // set a smaller chunk size here!
+        for (idx, nodes) in nodes.chunks(6).enumerate() {
             thread::scope(|s| {
                 nodes
                     .iter()
@@ -983,9 +984,10 @@ where
                         }
                     });
             });
-        }
 
-        self.update_online_status(&online_ids, &[]);
+            // Update with each chunk
+            self.update_online_status(&online_ids, &[]);
+        }
 
         if !ignore_failed {
             check_errlist!(@errlist)
