@@ -11,6 +11,95 @@ use ruc::*;
 use std::collections::BTreeMap;
 use std::thread;
 
+pub fn chg_file_on_nodes<C, P, S>(
+    env: &Env<C, P, S>,
+    ids: Option<&[NodeID]>,
+    local_file: &str,  // local absolute path on the control host
+    remote_file: &str, // remote file path relative to the node home
+) -> Result<()>
+where
+    C: CustomData,
+    P: NodePorts,
+    S: NodeCmdGenerator<Node<P>, EnvMeta<C, Node<P>>>,
+{
+    if let Some(ids) = ids {
+        for id in ids.iter() {
+            if env
+                .meta
+                .nodes
+                .get(id)
+                .or_else(|| env.meta.fuhrers.get(id))
+                .is_none()
+            {
+                return Err(eg!("The node(id: {}) does not exist!", id));
+            }
+        }
+    }
+
+    let mut errlist = vec![];
+
+    // Use chunks to avoid resource overload
+    for (idx, nodes) in env
+        .meta
+        .fuhrers
+        .values()
+        .chain(env.meta.nodes.values())
+        .filter(|n| ids.map(|ids| ids.contains(&n.id)).unwrap_or(true))
+        .collect::<Vec<_>>()
+        .chunks(12)
+        .enumerate()
+    {
+        let mut path_map = BTreeMap::new();
+
+        thread::scope(|s| {
+            nodes
+                .iter()
+                .map(|n| {
+                    let host = n.host.clone();
+                    let remote_file = format!("{}/{remote_file}", n.home);
+                    s.spawn(move || {
+                        let remote = Remote::from(&host);
+                        remote.put_file(local_file, &remote_file).c(d!()).map(|_| {
+                            (
+                                local_file,
+                                format!(
+                                    "[{},N{},{}] {}",
+                                    host.addr.connection_addr(),
+                                    n.id,
+                                    n.kind,
+                                    remote_file
+                                ),
+                            )
+                        })
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flat_map(|h| h.join())
+                .for_each(|t| match t {
+                    Ok((f, lp)) => {
+                        path_map.entry(f).or_insert_with(Vec::new).push(lp);
+                    }
+                    Err(e) => {
+                        errlist.push(e);
+                    }
+                });
+        });
+
+        // Print good resp at first,
+        path_map.into_iter().for_each(|(f, mut paths)| {
+            println!("[Chunk {idx}] The '{}' have been put at:", f);
+            paths.sort();
+            paths.iter().for_each(|p| {
+                println!("\t- {}", p);
+            });
+        });
+    }
+
+    // Then pop err msg
+    check_errlist!(errlist)
+}
+
 pub fn collect_files_from_nodes<C, P, S>(
     env: &Env<C, P, S>,
     ids: Option<&[NodeID]>,
@@ -96,7 +185,7 @@ where
 
         // Print good resp at first,
         path_map.into_iter().for_each(|(f, mut paths)| {
-            println!("[Chunk {idx}] Files of the '{}' are stored at:", f);
+            println!("[Chunk {idx}] Files of the '{}' have been put at:", f);
             paths.sort();
             paths.iter().for_each(|p| {
                 println!("\t- {}", p);
@@ -204,7 +293,10 @@ where
 
         // Print good resp at first,
         path_map.into_iter().for_each(|(f, mut paths)| {
-            println!("[Chunk {idx}] Tar packages of the '{}' are stored at:", f);
+            println!(
+                "[Chunk {idx}] Tar packages of the '{}' have been put at:",
+                f
+            );
             paths.sort();
             paths.iter().for_each(|p| {
                 println!("\t- {}", p);
