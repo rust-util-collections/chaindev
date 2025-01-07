@@ -249,7 +249,7 @@ pub fn get_file_from_hosts(
         // Print good resp at first,
         local_paths.sort_by(|a, b| a.0.cmp(&b.0));
         local_paths.into_iter().for_each(|(h, p)| {
-            println!("HOST-[{h}] file are stored at:\n\t{p}");
+            println!("HOST-[{h}] The file has been put at:\n\t{p}");
         });
     }
 
