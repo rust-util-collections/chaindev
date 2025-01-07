@@ -63,7 +63,7 @@ where
                             (
                                 local_file,
                                 format!(
-                                    "[{},N{},{}] {}",
+                                    "[{}, N{}, {}] {}",
                                     host.addr.connection_addr(),
                                     n.id,
                                     n.kind,

@@ -1097,7 +1097,9 @@ where
             }
         };
 
-        for n in nodes.iter().copied() {
+        nodes.sort_unstable();
+
+        for n in nodes.iter().rev().copied() {
             self.stop(Some(&set! {B n}), false).c(d!())?;
             sleep_ms!(1000 * wait_itv_secs as u64);
             self.start(Some(&set! {B n}), ignore_failed, realloc_ports)
