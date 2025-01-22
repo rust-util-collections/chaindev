@@ -754,10 +754,8 @@ where
             let cfg = format!("{repo}/custom.env");
             let block_itv_cache = format!("{tmpdir}/block_itv");
 
-            let repo_url = env::var("CHAIN_DEV_EGG_REPO");
-            let repo_url = repo_url
-                .as_deref()
-                .unwrap_or("https://github.com/rust-util-collections/EGG");
+            let repo_url = env::var("CHAIN_DEV_EGG_REPO")
+                .c(d!("The ${{CHAIN_DEV_EGG_REPO}} not set!"))?;
             let gitcmd = format!("git clone {repo_url} {repo} || exit 1");
             cmd::exec_output(&gitcmd).c(d!())?;
 
