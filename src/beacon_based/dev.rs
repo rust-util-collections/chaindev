@@ -755,7 +755,7 @@ where
             let block_itv_cache = format!("{tmpdir}/block_itv");
 
             let repo_url = env::var("CHAIN_DEV_EGG_REPO")
-                .c(d!("The ${{CHAIN_DEV_EGG_REPO}} not set!"))?;
+                .c(d!("The env var $CHAIN_DEV_EGG_REPO not set!"))?;
             let gitcmd = format!("git clone {repo_url} {repo} || exit 1");
             cmd::exec_output(&gitcmd).c(d!())?;
 
