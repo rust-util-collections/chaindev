@@ -1,8 +1,7 @@
 use crate::{
-    check_errlist,
+    NodeID, check_errlist,
     common::remote::Remote,
     tendermint_based::ddev::{Env, EnvMeta, Node, NodeCmdGenerator, NodePorts},
-    NodeID,
 };
 use ruc::*;
 use serde::{Deserialize, Serialize};

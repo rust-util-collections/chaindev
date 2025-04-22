@@ -7,7 +7,7 @@ pub mod remote;
 use crate::check_errlist;
 use crate::common::{
     hosts::{Host, HostAddr, HostID, HostMeta, Hosts, Weight},
-    remote::{exec_cmds_on_hosts, get_file_from_hosts, put_file_to_hosts, Remote},
+    remote::{Remote, exec_cmds_on_hosts, get_file_from_hosts, put_file_to_hosts},
 };
 use parking_lot::RwLock;
 use rand::random;

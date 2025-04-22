@@ -1,11 +1,11 @@
 use crate::{
+    NodeID,
     beacon_based::{
         common::CustomData,
         ddev::{Env, EnvMeta, Node, NodeCmdGenerator, NodePorts},
     },
     check_errlist,
     common::remote::Remote,
-    NodeID,
 };
 use ruc::*;
 use std::collections::BTreeMap;

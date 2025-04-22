@@ -4,8 +4,8 @@
 
 use nix::{
     sys::socket::{
-        self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType,
-        SockaddrIn,
+        self, AddressFamily, SockFlag, SockType, SockaddrIn, setsockopt, socket,
+        sockopt,
     },
     unistd::{self, ForkResult},
 };
@@ -18,7 +18,7 @@ use std::{
     fs::{self, OpenOptions},
     io::{ErrorKind, Write},
     os::unix::io::AsRawFd,
-    process::{exit, Command, Stdio},
+    process::{Command, Stdio, exit},
     sync::LazyLock,
 };
 use vsdb::MapxOrd;
@@ -1028,8 +1028,7 @@ impl<Ports: NodePorts> Node<Ports> {
             } else {
                 println!(
                     "This node(ID {}) may be in a partial failed state, less than 3 live processes({}) detected, enter the restart process.",
-                    self.id,
-                    process_cnt
+                    self.id, process_cnt
                 );
                 // Probably a partial failure
                 self.stop(env, false).c(d!())?;

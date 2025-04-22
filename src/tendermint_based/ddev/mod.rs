@@ -7,7 +7,7 @@ pub mod remote;
 use crate::check_errlist;
 use crate::common::{
     hosts::{HostExpression, HostExpressionRef, HostID, HostMeta, Hosts, Weight},
-    remote::{exec_cmds_on_hosts, get_file_from_hosts, put_file_to_hosts, Remote},
+    remote::{Remote, exec_cmds_on_hosts, get_file_from_hosts, put_file_to_hosts},
 };
 use rand::random;
 use ruc::{cmd, *};
@@ -21,11 +21,11 @@ use std::{
     sync::LazyLock,
     thread,
 };
-use tendermint::{validator::Info as TmValidator, vote::Power as TmPower, Genesis};
+use tendermint::{Genesis, validator::Info as TmValidator, vote::Power as TmPower};
 use tendermint_config::{
     NodeKey, PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
 };
-use toml_edit::{value as toml_value, Array, DocumentMut as Document};
+use toml_edit::{Array, DocumentMut as Document, value as toml_value};
 use vsdb::MapxOrd;
 
 pub use super::common::*;
@@ -1086,7 +1086,7 @@ where
                 })
                 .map(|key| TmValidator::new(key.pub_key, TmPower::from(PRESET_POWER)))
         };
-        let gen = |genesis_file: String| {
+        let genit = |genesis_file: String| {
             thread::scope(|s| {
                 let hdrs = self
                     .meta
@@ -1141,7 +1141,7 @@ where
                 .map_err(|e| eg!(e))
         })
         .and_then(|cfg| cfg.genesis_file.to_str().map(|f| f.to_owned()).c(d!()))
-        .and_then(gen)
+        .and_then(genit)
         .and_then(|_| fs::remove_dir_all(tmp_home).c(d!()))
     }
 
@@ -1625,9 +1625,11 @@ impl PortsCache {
 
     fn set(&self, ports: &[String]) {
         for p in ports {
-            assert!(unsafe { self.port_set.shadow() }
-                .insert(&p.to_owned(), &())
-                .is_none());
+            assert!(
+                unsafe { self.port_set.shadow() }
+                    .insert(&p.to_owned(), &())
+                    .is_none()
+            );
         }
     }
 

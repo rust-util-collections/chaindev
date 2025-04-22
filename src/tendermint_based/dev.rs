@@ -4,8 +4,8 @@
 
 use nix::{
     sys::socket::{
-        self, setsockopt, socket, sockopt, AddressFamily, SockFlag, SockType,
-        SockaddrIn,
+        self, AddressFamily, SockFlag, SockType, SockaddrIn, setsockopt, socket,
+        sockopt,
     },
     unistd::{self, ForkResult},
 };
@@ -20,15 +20,15 @@ use std::{
     io::{ErrorKind, Write},
     os::unix::io::AsRawFd,
     path::PathBuf,
-    process::{exit, Command, Stdio},
+    process::{Command, Stdio, exit},
     str::FromStr,
     sync::LazyLock,
 };
-use tendermint::{validator::Info as TmValidator, vote::Power as TmPower, Genesis};
+use tendermint::{Genesis, validator::Info as TmValidator, vote::Power as TmPower};
 use tendermint_config::{
     PrivValidatorKey as TmValidatorKey, TendermintConfig as TmConfig,
 };
-use toml_edit::{value as toml_value, Array, DocumentMut as Document};
+use toml_edit::{Array, DocumentMut as Document, value as toml_value};
 
 pub use super::common::*;
 use crate::common::NodeCmdGenerator;
@@ -674,7 +674,7 @@ where
         let tmp_id = NodeID::MAX;
         let tmp_home = format!("{}/{}", &self.meta.home, tmp_id);
 
-        let gen = |genesis_file: String| {
+        let genit = |genesis_file: String| {
             self.meta
                 .nodes
                 .values()
@@ -735,7 +735,7 @@ where
                 .map_err(|e| eg!(e))
         })
         .and_then(|cfg| cfg.genesis_file.to_str().map(|f| f.to_owned()).c(d!()))
-        .and_then(gen)
+        .and_then(genit)
         .and_then(|_| fs::remove_dir_all(tmp_home).c(d!()))
     }
 
@@ -859,8 +859,7 @@ impl<P: NodePorts> Node<P> {
             } else {
                 println!(
                     "This node(ID {}) may be in a partial failed state, less than 3 live processes({}) detected, enter the restart process.",
-                    self.id,
-                    process_cnt
+                    self.id, process_cnt
                 );
                 // Probably a partial failure
                 self.stop(env, false).c(d!())?;
