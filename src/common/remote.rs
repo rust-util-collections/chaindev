@@ -35,9 +35,8 @@ impl<'a> From<&'a Host> for Remote<'a> {
 impl Remote<'_> {
     // Execute a cmd on a remote host and get its outputs
     pub fn exec_cmd(&self, cmd: &str) -> Result<String> {
-        let cmd = format!("ulimit -n 100000 >/dev/null 2>&1;{}", cmd);
         self.inner
-            .exec_cmd(&cmd)
+            .exec_cmd(cmd)
             .c(d!(cmd))
             .map(|c| String::from_utf8_lossy(&c).into_owned())
     }

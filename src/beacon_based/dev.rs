@@ -1215,7 +1215,6 @@ fn check_port(port: u16) -> Result<()> {
 }
 
 fn exec_spawn(cmd: &str) -> Result<()> {
-    let cmd = format!("ulimit -n 102400; {}", cmd);
     Command::new("bash")
         .arg("-c")
         .arg(cmd)
@@ -1226,7 +1225,12 @@ fn exec_spawn(cmd: &str) -> Result<()> {
         .c(d!())?
         .wait()
         .c(d!())
-        .map(|exit_status| println!("{}", exit_status))
+        .map(|exit_status| {
+            if !exit_status.success() {
+                print_msg!("{}", cmd);
+                println!("{exit_status}");
+            }
+        })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
