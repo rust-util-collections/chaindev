@@ -775,7 +775,7 @@ where
                     sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
                     echo 'export SLOT_DURATION_IN_SECONDS="{0}"' >>{cfg} || exit 1
                 fi
-                grep -Po '(?<= SLOT_DURATION_IN_SECONDS=")\d+' {cfg} >{block_itv_cache} || exit 1
+                grep 'SLOT_DURATION_IN_SECONDS' {cfg} | grep -o '[0-9]\+' >{block_itv_cache} || exit 1
                 make minimal_prepare || exit 1
                 make build || exit 1
                 cp -r {repo}/data/{NODE_HOME_GENESIS_DIR_DST} {1}/ || exit 1
