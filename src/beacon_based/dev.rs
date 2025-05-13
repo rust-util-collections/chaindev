@@ -772,7 +772,7 @@ where
                     cp {cfg}.minimal.example {cfg} || exit 1
                 fi
                 if [ 0 -lt {0} ]; then
-                    sed -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
+                    perl -e -i '/SLOT_DURATION_IN_SECONDS/d' {cfg} || exit 1
                     echo 'export SLOT_DURATION_IN_SECONDS="{0}"' >>{cfg} || exit 1
                 fi
                 grep 'SLOT_DURATION_IN_SECONDS' {cfg} | grep -o '[0-9]\+' >{block_itv_cache} || exit 1
@@ -782,8 +782,8 @@ where
                 cp -r {1}/{NODE_HOME_GENESIS_DIR_DST} {1}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
                 cd {1}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
                 rm -rf tranches mnemonics.yaml || exit 1
-                sed -ri 's/("secretKey":)\s".*"/\1 ""/' genesis.json || exit 1
-                sed -ri 's/("secretKey":)\s".*"/\1 ""/' chainspec.json || exit 1
+                perl -e -i 's/("secretKey":)\s".*"/\1 ""/' genesis.json || exit 1
+                perl -e -i 's/("secretKey":)\s".*"/\1 ""/' chainspec.json || exit 1
                 "#,
                 self.meta.block_itv, self.meta.home,
             );
@@ -846,8 +846,8 @@ where
                 cp -r {0}/{NODE_HOME_GENESIS_DIR_DST} {0}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
                 cd {0}/{NODE_HOME_GENESIS_DIR_DST_PUBLIC} || exit 1
                 rm -rf tranches mnemonics.yaml || exit 1
-                sed -ri 's/("secretKey":)\s".*"/\1 ""/' genesis.json || exit 1
-                sed -ri 's/("secretKey":)\s".*"/\1 ""/' chainspec.json || exit 1
+                perl -e -i 's/("secretKey":)\s".*"/\1 ""/' genesis.json || exit 1
+                perl -e -i 's/("secretKey":)\s".*"/\1 ""/' chainspec.json || exit 1
                 "#,
                 self.meta.home
             );
